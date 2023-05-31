@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 import re
 import json
 from dateutil import parser
+import base64
 
 from holodex.client import HolodexClient
 
@@ -98,39 +99,51 @@ class Api(commands.Cog):
             await ctx.send("請輸入類別(live,upcoming)")
             return
         if(category=='live' or category=='upcoming'):
+            try:
+                with open("api.txt","r") as r:
+                    api_key=r.read()
+                r.close()
+            except:
+                print('no apikey')
+                return
+            url = "https://holodex.net/api/v2/live"
+            querystring = {"org":"Hololive","status":category}
+            headers = {
+                "Accept": "application/json",
+                "X-APIKEY": api_key
+            }
+            response = requests.get(url, headers=headers, params=querystring).json()
             
-            target=requests.get('https://holodex.net/api/v2/live').json()
-            live=target[category]
+            # print(response)
             
-            for i in range(len(live)):
-                print(live[i]['live_schedule'])
-                if(category=='live'):
-                    livestart=live[i]['live_start']
-                elif(category=='upcoming'):
-                    livestart=live[i]['live_schedule']
-                else:
-                    livestart=live[i]['live_end']
+            for i in range(len(response)):
+                print(response[i]['status'])
+                if(response[i]['status']=='live'):
+                    livestart=response[i]['start_actual']
+                elif(response[i]['status']=='upcoming'):
+                    livestart=response[i]['start_scheduled']
                 print(livestart)
                 if(livestart==None):
                     livestart='結束'
                 else:
                     livestart=parser.parse(livestart)
                     livestart=livestart.strftime("%Y/%m/%d %H:%M")
+
                 embed=discord.Embed()
-                embed.title=live[i]['title']
-                embed.url='https://www.youtube.com/watch?v='+live[i]['yt_video_key']
-                embed.set_image(url=live[i]['channel']['photo'])
-                a='https://www.youtube.com/channel/'+live[i]['channel']['yt_channel_id']
-                if(category=='ended'):
-                    embed.description=f"結束時間:{livestart}\n{live[i]['channel']['name']}的頻道[url]({a})"
-                elif(category=='live'):
-                    embed.description=f"觀看人數:{live[i]['live_viewers']}\n{live[i]['channel']['name']}的頻道[url]({a})"
-                else:
-                    embed.description=f"開始時間:{livestart}\n{live[i]['channel']['name']}的頻道[url]({a})"
-                t=live[i]['title']
+                embed.title=response[i]['title']
+                embed.url='https://www.youtube.com/watch?v='+response[i]['id']
+                embed.set_image(url=response[i]['channel']['photo'])
+                a='https://www.youtube.com/channel/'+response[i]['channel']['id']
+                if(response[i]['status']=='upcoming'):
+                    embed.description=f"開始時間:{livestart}\n{response[i]['channel']['name']}的頻道[url]({a})"
+                elif(response[i]['status']=='live'):
+                    embed.description=f"觀看人數:{response[i]['live_viewers']}\n{response[i]['channel']['name']}的頻道[url]({a})"
+                t=response[i]['title']
                 t=t.lower()
                 if((not 'free' in t) and (not 'chat' in t) and (not 'schedule' in t)):
                     await ctx.send(embed=embed)
+                    asyncio.sleep(2)
+            print("list over")
             return
         
         await ctx.send("類別輸入錯誤，請重新輸入(live,upcoming)")
