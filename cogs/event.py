@@ -6,6 +6,7 @@ from discord.ext import commands
 import random
 import json
 import utils
+import time
 
 badword_json="json/badword.json"
 

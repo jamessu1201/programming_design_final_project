@@ -56,7 +56,7 @@ def main():
         with open("owners.txt","r") as r:
             raw=r.read()
             for owner in raw.split(","):
-                owners.append(owner)
+                owners.append(int(owner))
         r.close()
         print(owners)
     except:
