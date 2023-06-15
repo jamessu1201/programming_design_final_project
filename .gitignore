@@ -1,4 +1,4 @@
 test.py
 json/
 *.txt
-cogs/auto.py
+cogs/log.py

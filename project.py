@@ -18,9 +18,8 @@ default_prefixes = "!"            #if prefix does not set,then use default
 
 
 try:                              #if token doesn't exist then return
-    with open("token.txt") as f:
-        token=f.read()
-    f.close()
+    token=os.environ.get('bot_token')
+    print(token)
 except:
     print("token does not exist,please create a bot")
     os._exit(0)

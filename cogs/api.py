@@ -6,6 +6,7 @@ import requests
 import random
 import datetime
 from bs4 import BeautifulSoup
+import os
 import re
 import json
 from dateutil import parser
@@ -92,6 +93,22 @@ class Api(commands.Cog):
         embed.description = f"{name1}\n攻擊力:\n物理:{s1[0]}\n魔力:{s1[1]}\n火:{s1[2]}\n雷:{s1[3]}\n聖:{s1[4]}\n致命一擊:{s1[5]}\n[詳細資料](https://eldenring.wiki.fextralife.com/{c1})."
         await ctx.send(embed=embed)
 
+    @commands.command(name='picture')
+    async def picture(self,ctx:commands.Context,query:str=None):
+        """隨機找圖片素材用"""
+        if(query==None):
+            await ctx.send("請輸入要搜尋的東西")
+            return
+        with open("access_key.txt","r") as r:
+            access_key=os.environ.get('picture_access_key')
+        r.close()
+
+        url = 'https://api.unsplash.com/search/photos'
+        querystring = {'query': query, 'client_id': access_key}
+        response = requests.get(url, params=querystring, allow_redirects=True).json()
+        print(response)
+
+
     @commands.command(name='hololive')
     async def hololive(self,ctx:commands.Context,category:str=None):
         """看各位holomember的開台狀況(百鬼是要不要開台阿)"""
@@ -100,9 +117,7 @@ class Api(commands.Cog):
             return
         if(category=='live' or category=='upcoming'):
             try:
-                with open("api.txt","r") as r:
-                    api_key=r.read()
-                r.close()
+                api_key=os.environ.get('holodex_api_key')
             except:
                 print('no apikey')
                 return
@@ -142,7 +157,6 @@ class Api(commands.Cog):
                 t=t.lower()
                 if((not 'free' in t) and (not 'chat' in t) and (not 'schedule' in t)):
                     await ctx.send(embed=embed)
-                    asyncio.sleep(2)
             print("list over")
             return
         
