@@ -17,10 +17,9 @@ default_prefixes = "!"            #if prefix does not set,then use default
 
 
 
-try:                              #if token doesn't exist then return
-    token=os.environ.get('bot_token')
-    print(token)
-except:
+                             
+token=os.environ.get('bot_token')   #if token doesn't exist then return
+if(token==None):    
     print("token does not exist,please create a bot")
     os._exit(0)
 
@@ -52,7 +51,7 @@ def main():
             return default_prefixes
     owners=[]
     try:
-        with open("owners.txt","r") as r:
+        with open("private/owners.txt","r") as r:
             raw=r.read()
             for owner in raw.split(","):
                 owners.append(int(owner))

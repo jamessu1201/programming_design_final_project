@@ -99,9 +99,11 @@ class Api(commands.Cog):
         if(query==None):
             await ctx.send("請輸入要搜尋的東西")
             return
-        with open("access_key.txt","r") as r:
-            access_key=os.environ.get('picture_access_key')
-        r.close()
+        
+        access_key=os.environ.get('picture_access_key')
+        if(access_key==None):
+            await ctx.send("no picture_access_key")
+            return
 
         url = 'https://api.unsplash.com/search/photos'
         querystring = {'query': query, 'client_id': access_key}
@@ -116,10 +118,10 @@ class Api(commands.Cog):
             await ctx.send("請輸入類別(live,upcoming)")
             return
         if(category=='live' or category=='upcoming'):
-            try:
-                api_key=os.environ.get('holodex_api_key')
-            except:
-                print('no apikey')
+            api_key=os.environ.get('holodex_api_key')
+
+            if(api_key==None):
+                await ctx.send("no holodex_api_key")
                 return
             url = "https://holodex.net/api/v2/live"
             querystring = {"org":"Hololive","status":category}

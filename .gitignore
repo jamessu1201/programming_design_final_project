@@ -1,4 +1,5 @@
 test.py
 json/
-*.txt
+private/
+api_key/
 cogs/log.py
