@@ -31,6 +31,10 @@ class Auto(commands.Cog):
         await channel.send('<@&1104820254145790133>')
         await channel.send('https://giphy.com/gifs/xTcnSSsbe4hhZBvV6M')
     
+    @tasks.loop(second=60)
+    async def no_rest(self):
+        print("no_rest")
+        
 
 
 async def setup(bot):
