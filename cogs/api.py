@@ -12,7 +12,6 @@ import json
 from dateutil import parser
 import base64
 
-from holodex.client import HolodexClient
 
 weapons={'匕首':'Dagger','黑刀':'Black Knife','格擋匕首':'Parrying Dagger','慈悲短劍':'Misericorde','逆刺':'Reduvia','結晶小刀':'Crystal Knife','慶典小鐮刀':'Celebrant-s Sickle','輝石克力士':'Glintstone Kris','蠍尾針':'Scorpion-s Stinger','單刃小刀':'Great Knife','脇差':'Wakizashi','五指劍':'Cinquedea','象牙小鐮刀':'Ivory Sickle','染血短刀':'Bloodstained Dagger','黃銅短刀':'Erdsteel Dagger','使命短刀':'Blade of Calling','長劍':'Longsword','短劍':'Short Sword','闊劍':'Broadsword','君王軍直劍':'Lordsworn-s Straight Sword','拉茲利輝石劍':'Lazuli Glintstone Sword','結晶劍':'Crystal Sword','卡利亞騎士劍':'Carian Knight-s Sword','夜與火之劍':'Sword of Night and Flame','托莉娜劍':'Sword of St Trina','黃金墓碑':'Golden Epitaph','手杖劍':'Cane Sword','儀式直劍':'Ornamental Straight Sword','老舊直劍':'Weathered Straight Sword','戰鷹爪形劍':'Warhawk-s Talon','權貴細身劍':'Noble-s Slender Sword','歐赫寶劍':'Regalia of Eochaid','米凱拉騎士劍':'Miquellan Knight-s Sword','秘文劍':'Coded Sword','腐敗結晶劍':'Rotten Crystal Sword','失鄉騎士大劍':'Banished Knight-s Greatsword','混種大劍':'Bastard Sword','大劍':'Claymore','焰形大劍':'Flamberge','石像鬼黑劍':'Gargoyle-s Blackblade','石像鬼大劍':'Gargoyle-s Greatsword','騎士大劍':'Knight-s Greatsword','君王軍大劍':'Lordsworn-s Greatsword','瑪雷家行刑劍':'Marais Executioner-s Sword','滅洛斯劍':'Sword of Milos','暗月大劍':'Dark Moon Greatsword','褻瀆聖劍':'Blasphemous Blade','白王劍':'Alabaster Lord-s Sword','奧陶琵斯大劍':'Ordovis-s Greatsword','黃金律法大劍':'Golden Order Greatsword','神軀化劍':'Sacred Relic Sword','分岔大劍':'Forked Greatsword','赫芬尖塔劍':'Helphen-s Steeple','死亡鉤棒':'Death-s Poker','鐵制大劍':'Iron Greatsword','緊密孿生劍':'Inseparable Sword','巨劍':'Greatsword',
 '看門犬大劍':'Watchdog-s Greatsword','瑪利喀斯的黑劍':'Maliketh-s Black Blade','山妖黃金劍':'Troll-s Golden Sword','雙手巨劍':'Zweihander','碎星大劍':'Starscourge Greatsword','王室巨劍':'Royal Greatsword','狩獵神祇大劍':'Godslayer-s Greatsword','遺跡大劍':'Ruins Greatsword','劍骸大劍':'Grafted Blade Greatsword','山妖騎士劍':'Troll Knight-s Sword','蟻刺細劍':'Antspur Rapier','刺劍':'Estoc','結冰針':'Frozen Needle','權貴刺劍':'Noble-s Estoc','細劍':'Rapier','尊腐騎士劍':'Cleanrot Knight-s Sword','羅傑爾刺劍':'Rogier-s Rapier','鮮血旋流':'Bloody Helice','神皮縫針':'Godskin Stitcher','大重劍':'Great Epee','龍王岩劍':'Dragon King-s Cragblade','彎刃大刀':'Falchion','短彎刀':'Scimitar','巨型刀':'Grossmesser','螳臂刀':'Mantis Blade','剝屍曲劍':'Scavenger-s Curved Sword','鉤劍':'Shotel','日蝕鉤劍':'Eclipse Shotel','艾絲緹薄翼':'Wing of Astel','諾克斯流體劍':'Nox Flowing Sword','蛇神彎刀':'Serpent-God-s Curved Sword','賽施爾長刀':'Shamshir','山賊彎刀':'Bandit-s Curved Sword','流水曲劍':'Flowing Curved Sword','熔岩刀':'Magma Blade','獸人彎刀':'Beastman-s Curved Sword','黑王大劍':'Onyx Lord-s Greatsword','騎兵馬刀':'Dismounter','獵犬長牙':'Bloodhound-s Fang','土龍鱗劍':'Magma Wyrm-s Scalesword','薩米爾彎刀':'Zamor Curved Sword','惡兆之子大刀':'Omen Cleaver','習武修士火紋刀':'Monk-s Flameblade','獸人大彎刀':'Beastman-s Cleaver','蒙葛特咒劍':'Morgott-s Cursed Sword','打刀':'Uchigatana','長牙':'Nagakiba','瑪蓮妮亞的義手刀':'Hand of Malenia','鐵隕石刀':'Meteoric Ore Blade','屍山血海':'Rivers of Blood','名刀月隱':'Moonveil','龍鱗刀':'Dragonscale Blade','蛇骨刀':'Serpentbone Blade','雙頭劍':'Twinblade','神皮剝制劍':'Godskin Peeler','騎士雙頭劍':'Twinned Knight Swords','艾琉諾拉雙頭刀':'Eleonora-s Poleblade','石像鬼雙頭劍':'Gargoyle-s Twinblade',
@@ -102,14 +101,30 @@ class Api(commands.Cog):
         
         access_key=os.environ.get('picture_access_key')
         if(access_key==None):
-            await ctx.send("no picture_access_key")
-            return
+            try:
+                with open('api_key/access_key.txt','r') as r:
+                    access_key=r.read()
+            except:
+                await ctx.send("no picture_access_key")
+                return
 
         url = 'https://api.unsplash.com/search/photos'
         querystring = {'query': query, 'client_id': access_key}
         response = requests.get(url, params=querystring, allow_redirects=True).json()
         print(response)
 
+    @commands.command(hidden=True)
+    async def ccu_csie_camp(self,ctx:commands.Context,req:str=None):
+        if(req==None):
+            await ctx.send("type things to search")
+            return
+        url='https://www.google.com/search?q='+req+'&tbm=isch&sa=X&ved=2ahUKEwioipTwptP_AhVIEIgKHUkYBtQQ0pQJegQICxAB&biw=1608&bih=950&dpr=1'
+        res=requests.get(url).text
+        soup=BeautifulSoup(res,'html5lib')
+        title=soup.find_all('img')
+        for i in title:
+            await ctx.send(i['src'])
+        
 
     @commands.command(name='hololive')
     async def hololive(self,ctx:commands.Context,category:str=None):
@@ -121,8 +136,12 @@ class Api(commands.Cog):
             api_key=os.environ.get('holodex_api_key')
 
             if(api_key==None):
-                await ctx.send("no holodex_api_key")
-                return
+                try:
+                    with open('api_key/api.txt','r') as r:
+                        api_key=r.read()
+                except:
+                    await ctx.send("no holodex_api_key")
+                    return
             url = "https://holodex.net/api/v2/live"
             querystring = {"org":"Hololive","status":category}
             headers = {
