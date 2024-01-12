@@ -19,9 +19,13 @@ default_prefixes = "!"            #if prefix does not set,then use default
 
                              
 token=os.environ.get('bot_token')   #if token doesn't exist then return
-if(token==None):    
-    print("token does not exist,please create a bot")
-    os._exit(0)
+if(token==None):
+    try:
+        with open('api_key/token.txt','r') as bot_token:
+            token=bot_token.read()
+    except:
+        print("token does not exist,please create a bot")
+        os._exit(0)
 
 try:                              #if file not exist then create
     with open(prefix_json) as f:

@@ -65,32 +65,60 @@ class Other(commands.Cog):
 
     @commands.command(name='banwords')
     # @commands.has_permissions(manage_guild=True)
-    async def _banwords(self,ctx:commands.Context,word:str=None):
+    async def _banwords(self,ctx:commands.Context,word=None):
         """ban特定的字"""
         if(word==None):
             await ctx.send("請輸入要ban的單字")
             return
-        with open(Path(badword_json),"rb") as f:
-            words = json.load(f)
-        f.close()
+        with open(Path(badword_json),"rb") as f:            #words : dictionary
+            words = json.load(f)                            #word  : str
+        f.close()                                           #a     : list
+        
+        
+        print('----------------')
+        print(word)
+        print('----------------')
         if(str(ctx.guild.id) not in words):
-            a=[]
-            a.append(word)
+            await ctx.send(word)
+            a=word.split()
+            await ctx.send(a)
             words.setdefault(str(ctx.guild.id),a)
             with open(Path(badword_json),"w") as r:
                 json.dump(words,r)
             r.close()
             await ctx.send("設定成功!")
         else:
-            for i in range(len(str(ctx.guild.id))):
+            for i in range(len(words[str(ctx.guild.id)])):
                 if(words[str(ctx.guild.id)][i]==word):
                     await ctx.send("已經ban過了喔!")
-                    return    
-            words[str(ctx.guild.id)].append(word)
+                    return
+            a=word.split()
+            await ctx.send(a)
+            for i in range(len(a)):
+                words[str(ctx.guild.id)].append(a[i])
             with open(Path(badword_json),"w") as r:
                 json.dump(words,r)
             r.close()
-            await ctx.send("設定成功!")        
+            await ctx.send("設定成功!")
+            
+            
+    @commands.command(name='banwordlist')
+    # @commands.has_permissions(manage_guild=True)
+    async def _banwordlist(self,ctx:commands.Context):
+        """banlist"""
+        
+        with open(Path(badword_json),"rb") as f:            #words : dictionary
+            words = json.load(f)                            #word  : str
+        f.close()                                           #a     : list
+        
+        if(str(ctx.guild.id) not in words):
+            await ctx.send("目前還沒禁任何文字")
+            return
+        
+        for i in range(len(words[str(ctx.guild.id)])):
+            await ctx.send(words[str(ctx.guild.id)][i])
+
+                       
         
 
     
@@ -119,7 +147,15 @@ class Other(commands.Cog):
         emb=discord.Embed(title=topic,description=f"投票結果:{result}",timestamp=datetime.datetime.utcnow())
     
         await newmessage.edit(embed=emb)
-
+        
+        
+        
+    @commands.command(name='test')
+    @commands.guild_only()
+    async def test(self, ctx:commands.Context):
+        """test"""
+        channel=await self.bot.fetch_channel('1063016394058387466')
+        await channel.create_thread(name="測試", message="test", auto_archive_duration=4320, type=None, reason=None)
 
     @commands.command(name='prefix')
     @commands.guild_only()

@@ -3,3 +3,4 @@ private/
 api_key/
 cogs/log.py
 __pycache__
+*.html
