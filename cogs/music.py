@@ -643,14 +643,27 @@ class Music(commands.Cog):
                     await ctx.voice_state.songs.put(song)
                     await ctx.send('Enqueued {}'.format(str(source)))
 
-    
-
+    @commands.command(hidden=True)
+    @commands.is_owner()
+    async def check(self, ctx: commands.Context):
+        print(type(ctx.voice_client))
+        if type(ctx.voice_client) is NoneType:
+            print('yes')
+        
+        
+        
+        
     @_join.before_invoke
     @_play.before_invoke
     async def ensure_voice_state(self, ctx: commands.Context):
+        
         if not ctx.author.voice or not ctx.author.voice.channel:
             raise commands.CommandError('You are not connected to any voice channel.')
 
+        if ctx.author.id==ctx.guild.owner.id:
+            return
+
+        
         if ctx.voice_client:
             if ctx.voice_client.channel != ctx.author.voice.channel:
                 raise commands.CommandError('Bot is already in a voice channel.')
