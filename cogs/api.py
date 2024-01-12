@@ -102,14 +102,30 @@ class Api(commands.Cog):
         
         access_key=os.environ.get('picture_access_key')
         if(access_key==None):
-            await ctx.send("no picture_access_key")
-            return
+            try:
+                with open('api_key/access_key.txt','r') as r:
+                    access_key=r.read()
+            except:
+                await ctx.send("no picture_access_key")
+                return
 
         url = 'https://api.unsplash.com/search/photos'
         querystring = {'query': query, 'client_id': access_key}
         response = requests.get(url, params=querystring, allow_redirects=True).json()
         print(response)
 
+    @commands.command(hidden=True)
+    async def ccu_csie_camp(self,ctx:commands.Context,req:str=None):
+        if(req==None):
+            await ctx.send("type things to search")
+            return
+        url='https://www.google.com/search?q='+req+'&tbm=isch&sa=X&ved=2ahUKEwioipTwptP_AhVIEIgKHUkYBtQQ0pQJegQICxAB&biw=1608&bih=950&dpr=1'
+        res=requests.get(url).text
+        soup=BeautifulSoup(res,'html5lib')
+        title=soup.find_all('img')
+        for i in title:
+            await ctx.send(i['src'])
+        
 
     @commands.command(name='hololive')
     async def hololive(self,ctx:commands.Context,category:str=None):
@@ -121,8 +137,12 @@ class Api(commands.Cog):
             api_key=os.environ.get('holodex_api_key')
 
             if(api_key==None):
-                await ctx.send("no holodex_api_key")
-                return
+                try:
+                    with open('api_key/api.txt','r') as r:
+                        api_key=r.read()
+                except:
+                    await ctx.send("no holodex_api_key")
+                    return
             url = "https://holodex.net/api/v2/live"
             querystring = {"org":"Hololive","status":category}
             headers = {
