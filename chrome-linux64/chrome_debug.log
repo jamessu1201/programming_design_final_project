@@ -170,3 +170,32 @@
 [0111/003004.311129:WARNING:sandbox_linux.cc(393)] InitializeSandbox() called with multiple threads in process gpu-process.
 [0112/081003.320453:WARNING:sandbox_linux.cc(393)] InitializeSandbox() called with multiple threads in process gpu-process.
 [0112/091401.793734:WARNING:sandbox_linux.cc(393)] InitializeSandbox() called with multiple threads in process gpu-process.
+[0113/063506.293546:WARNING:sandbox_linux.cc(393)] InitializeSandbox() called with multiple threads in process gpu-process.
+[0113/063705.043401:WARNING:sandbox_linux.cc(393)] InitializeSandbox() called with multiple threads in process gpu-process.
+[0113/064005.314947:WARNING:sandbox_linux.cc(393)] InitializeSandbox() called with multiple threads in process gpu-process.
+[0113/064205.504854:WARNING:sandbox_linux.cc(393)] InitializeSandbox() called with multiple threads in process gpu-process.
+[0113/064505.660156:WARNING:sandbox_linux.cc(393)] InitializeSandbox() called with multiple threads in process gpu-process.
+[0113/064705.757850:WARNING:sandbox_linux.cc(393)] InitializeSandbox() called with multiple threads in process gpu-process.
+[0113/065005.550153:WARNING:sandbox_linux.cc(393)] InitializeSandbox() called with multiple threads in process gpu-process.
+[0113/065206.059384:WARNING:sandbox_linux.cc(393)] InitializeSandbox() called with multiple threads in process gpu-process.
+[0113/065806.309672:WARNING:sandbox_linux.cc(393)] InitializeSandbox() called with multiple threads in process gpu-process.
+[0113/070304.614383:WARNING:sandbox_linux.cc(393)] InitializeSandbox() called with multiple threads in process gpu-process.
+[0113/070904.667144:WARNING:sandbox_linux.cc(393)] InitializeSandbox() called with multiple threads in process gpu-process.
+[0115/041515.502088:WARNING:sandbox_linux.cc(393)] InitializeSandbox() called with multiple threads in process gpu-process.
+[0115/041515.546416:ERROR:command_buffer_proxy_impl.cc(129)] ContextResult::kTransientFailure: Failed to send GpuControl.CreateCommandBuffer.
+[0115/041642.348969:WARNING:sandbox_linux.cc(393)] InitializeSandbox() called with multiple threads in process gpu-process.
+[0115/041642.413698:ERROR:command_buffer_proxy_impl.cc(129)] ContextResult::kTransientFailure: Failed to send GpuControl.CreateCommandBuffer.
+[0115/041752.401587:WARNING:sandbox_linux.cc(393)] InitializeSandbox() called with multiple threads in process gpu-process.
+[0115/041752.448045:ERROR:command_buffer_proxy_impl.cc(129)] ContextResult::kTransientFailure: Failed to send GpuControl.CreateCommandBuffer.
+[0115/042047.502600:WARNING:sandbox_linux.cc(393)] InitializeSandbox() called with multiple threads in process gpu-process.
+[0115/042047.654325:ERROR:command_buffer_proxy_impl.cc(129)] ContextResult::kTransientFailure: Failed to send GpuControl.CreateCommandBuffer.
+[0115/042253.854423:WARNING:sandbox_linux.cc(393)] InitializeSandbox() called with multiple threads in process gpu-process.
+[0115/042341.513859:WARNING:sandbox_linux.cc(393)] InitializeSandbox() called with multiple threads in process gpu-process.
+[0115/042341.751249:ERROR:command_buffer_proxy_impl.cc(129)] ContextResult::kTransientFailure: Failed to send GpuControl.CreateCommandBuffer.
+[0115/042655.459099:WARNING:sandbox_linux.cc(393)] InitializeSandbox() called with multiple threads in process gpu-process.
+[0115/042655.654090:ERROR:command_buffer_proxy_impl.cc(129)] ContextResult::kTransientFailure: Failed to send GpuControl.CreateCommandBuffer.
+[0115/042825.509510:WARNING:sandbox_linux.cc(393)] InitializeSandbox() called with multiple threads in process gpu-process.
+[0115/042825.618551:ERROR:command_buffer_proxy_impl.cc(129)] ContextResult::kTransientFailure: Failed to send GpuControl.CreateCommandBuffer.
+[0115/044137.877706:WARNING:sandbox_linux.cc(393)] InitializeSandbox() called with multiple threads in process gpu-process.
+[0115/044215.163605:WARNING:sandbox_linux.cc(393)] InitializeSandbox() called with multiple threads in process gpu-process.
+[0115/044257.168129:WARNING:sandbox_linux.cc(393)] InitializeSandbox() called with multiple threads in process gpu-process.

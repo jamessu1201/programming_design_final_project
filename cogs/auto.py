@@ -37,7 +37,7 @@ utc = datetime.timezone.utc
 
 happy_birthday_time = datetime.time(hour=0, minute=0, tzinfo=datetime.timezone(datetime.timedelta(hours=8)))
 
-question_time = datetime.time(hour=17, minute=14, tzinfo=datetime.timezone(datetime.timedelta(hours=8)))
+question_time = datetime.time(hour=8, minute=10, tzinfo=datetime.timezone(datetime.timedelta(hours=8)))
 
 curr_dt = datetime.datetime.now()
 
