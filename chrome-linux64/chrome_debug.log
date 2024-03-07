@@ -199,3 +199,5 @@
 [0115/044137.877706:WARNING:sandbox_linux.cc(393)] InitializeSandbox() called with multiple threads in process gpu-process.
 [0115/044215.163605:WARNING:sandbox_linux.cc(393)] InitializeSandbox() called with multiple threads in process gpu-process.
 [0115/044257.168129:WARNING:sandbox_linux.cc(393)] InitializeSandbox() called with multiple threads in process gpu-process.
+[0304/071126.584227:WARNING:sandbox_linux.cc(393)] InitializeSandbox() called with multiple threads in process gpu-process.
+[0304/071225.498514:ERROR:latency_info.cc(93)] CompositorFrameSinkSupport::MaybeSubmitCompositorFrame, LatencyInfo vector size 232 is too big.

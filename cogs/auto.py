@@ -65,8 +65,10 @@ class Auto(commands.Cog):
     @tasks.loop(time=question_time)
     async def leetcode(self):
         channel=await self.bot.fetch_channel('1063016394058387466')
-        thread=await channel.create_thread(name=main(), message=None, auto_archive_duration=4320, type=discord.ChannelType.public_thread, reason=None)
+        result=main()
+        thread=await channel.create_thread(name=result[0], message=None, auto_archive_duration=4320, type=discord.ChannelType.public_thread, reason=None)
         await thread.send(get_link())
+        await thread.send('Difficulty:'+result[1])
         
         
     # async def check_attend(self):
