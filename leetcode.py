@@ -20,11 +20,9 @@ link=''
 
 def get_result():
     
-    url="https://leetcode.com/graphql/"
-    headers = {'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0'}
-
-    params={"query":"\n query questionOfToday {\n activeDailyCodingChallengeQuestion {\n date\n userStatus\n link \n question { \n acRate \n difficulty \n freqBar \n frontendQuestionId: questionFrontendId \n isFavor \n paidOnly: isPaidOnly \n status \n title \n titleSlug \n hasVideoSolution \n hasSolution \n topicTags { \n name  \n id \n slug  \n } \n } \n } \n }\n   "}
-    return requests.get(url,params=params,headers=headers)
+    url="https://app.scrapingbee.com/api/v1/"
+    params={"api_key":"9TZ75ZVFQTEYGJ10FM7IZ47V5FT64KSXINLRNSNV0FD1EFFR33SCC5N1XC5MEG597BNM94ZFEB484SKX","url":"https://leetcode.com/graphql/?query=%0A+query+questionOfToday+%7B%0A+activeDailyCodingChallengeQuestion+%7B%0A+date%0A+userStatus%0A+link+%0A+question+%7B+%0A+acRate+%0A+difficulty+%0A+freqBar+%0A+frontendQuestionId%3A+questionFrontendId+%0A+isFavor+%0A+paidOnly%3A+isPaidOnly+%0A+status+%0A+title+%0A+titleSlug+%0A+hasVideoSolution+%0A+hasSolution+%0A+topicTags+%7B+%0A+name++%0A+id+%0A+slug++%0A+%7D+%0A+%7D+%0A+%7D+%0A+%7D%0A+++","render_js":"true"}
+    return requests.get(url,params=params)
 
 
 def get_link():
@@ -42,6 +40,7 @@ def main():
     result=get_result()
     
     print(result.request.url)
+    print(result)
 
     j=result.json()
 
