@@ -8,10 +8,10 @@ import discord
 
 from discord.ext import commands
 
-
+import asyncio
 
 sys.path.append(os.path.abspath(".."))
-from attend_program import *
+from attend_playwright import *
 
 
 
@@ -32,7 +32,7 @@ class Attend(commands.Cog):
             await ctx.send("輸入錯誤，請重新輸入")
             return
         await ctx.send("點名中...")
-        result=attend_main(course_name,pwd)
+        result=await attend_main(course_name,pwd)
         await ctx.send(result)
         
     @commands.Cog.listener()

@@ -6,12 +6,12 @@ import platform
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
-
 from selenium.webdriver.support.ui import WebDriverWait,Select
 from selenium.webdriver.support import expected_conditions as EC
 
-
+import time
 
 def solve(key,solver,driver):
   try:
@@ -31,7 +31,7 @@ def solve(key,solver,driver):
 def init():
 	options = Options()
 	options.add_argument("--headless")
-	options.add_argument("--disable-dev-shm-usage"); # overcome limited resource problems
+	options.add_argument("--disable-dev-shm-usage") # overcome limited resource problems
 	options.add_argument('--window-size=1920,1080')
 	options.add_argument("--no-sandbox")
 	options.add_argument("--disable-gpu")
@@ -62,13 +62,16 @@ def init():
 	solver=TwoCaptcha(apiKey=key)
 
 	if(platform.system()=='Windows'):
-		driver = webdriver.Chrome(options=options, executable_path="driver/chromedriver.exe",)
+		s=Service("driver/chromedriver.exe")
 	elif(platform.system()=='Linux'):
-		driver = webdriver.Chrome(options=options, executable_path="chromedriver-linux64/chromedriver",)
+		s=Service("chromedriver-linux64/chromedriver")
+ 
+	driver = webdriver.Chrome(options=options,service=s,)
 	
  
 	driver.delete_all_cookies() #清cookie
- 
+	
+	print("initiate complete.")
  
 	return driver,solver,data
 
@@ -104,6 +107,9 @@ def login(driver,solver,data):
  
 	if("Authentication Succeeded with Warnings" in driver.page_source):
 	    driver.find_element(By.XPATH,"//button[@name='continue']").click()
+     
+     
+	print('login complete.')
 
 
 
@@ -144,18 +150,24 @@ def attend(driver,attend_pwd=None):
 def attend_main(course_name,attend_pwd):
  
 	result=init()
- 
+	if(type(result)==tuple()):
+		print('yes')
+	print(type(result))
  
 	driver=result[0]
 	solver=result[1]
 	data=result[2]
 
 #----------------------------   init complete
+	print("ready to get driver.")
+ 
+
 
 
 	driver.get("https://ecourse2.ccu.edu.tw/")
 
-
+	
+	print("driver get complete.")
 
 	login_site=driver.find_element(By.XPATH,"//a[contains(text(), 'CCU單一登入')]")
 
@@ -229,3 +241,5 @@ def attend_with_link(link):
 	else:
 		return attend(driver)
 
+
+attend_main('aaa','aaa')
