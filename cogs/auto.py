@@ -30,14 +30,19 @@ import sys
 sys.path.append(os.path.abspath(".."))
 from leetcode import *
 
-
+import random
 
 
 utc = datetime.timezone.utc
 
 happy_birthday_time = datetime.time(hour=0, minute=0, tzinfo=datetime.timezone(datetime.timedelta(hours=8)))
 
-question_time = datetime.time(hour=8, minute=10, tzinfo=datetime.timezone(datetime.timedelta(hours=8)))
+question_time = datetime.time(hour=9, minute=10, tzinfo=datetime.timezone(datetime.timedelta(hours=8)))
+
+randtime=random.randint(0,59)
+print(randtime)
+
+lol_time = datetime.time(hour=23, minute=randtime, tzinfo=datetime.timezone(datetime.timedelta(hours=8)))
 
 curr_dt = datetime.datetime.now()
 
@@ -50,6 +55,7 @@ class Auto(commands.Cog):
         self.bot=bot
         self.happy_birthday.start()
         self.leetcode.start()
+        #self.lol_time.start()
 
     @tasks.loop(time=happy_birthday_time)
     async def happy_birthday(self):
@@ -60,10 +66,19 @@ class Auto(commands.Cog):
         await channel.send('<@&1153019088252186734>')
         await channel.send('<@&1065064029527224341> 生日快樂🎉')
         await channel.send('https://giphy.com/gifs/xTcnSSsbe4hhZBvV6M')
-        
+    
+    @tasks.loop(time=lol_time)
+    async def lol_time(self):
+        global lol_time
+        channel = await self.bot.fetch_channel('1176712280373743716')
+        await channel.send('<@&1095886102381985872> 一把')
+        randtime=random.randint(0,59)
+        lol_time = datetime.time(hour=23, minute=randtime, tzinfo=datetime.timezone(datetime.timedelta(hours=8)))
+        print(randtime)
         
     @tasks.loop(time=question_time)
     async def leetcode(self):
+        print("leetcode time")
         channel=await self.bot.fetch_channel('1063016394058387466')
         result=main()
         thread=await channel.create_thread(name=result[0], message=None, auto_archive_duration=4320, type=discord.ChannelType.public_thread, reason=None)

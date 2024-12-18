@@ -1,6 +1,13 @@
 test.py
 private/
 api_key/
+json/
 cogs/log.py
 __pycache__
 *.html
+*.png
+*.jpg
+*.txt
+log*
+less*
+final_project/

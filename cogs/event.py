@@ -7,6 +7,7 @@ import random
 import json
 import utils
 import time
+from unicodedata import lookup
 
 badword_json="json/badword.json"
 
@@ -32,6 +33,24 @@ class Event(commands.Cog):
                     words={"useless":[""]}
                     json.dump(words,file)
                 file.close()
+            
+            # if("有沒有" in message.content or "有嗎" in message.content):
+            #     print('yes')
+            #     emoji='\U0001F236'
+            #     await message.add_reaction(emoji)
+                
+            # if("可不可" in message.content or "要不要" in message.content or "要嗎" in message.content):
+            #     print('ok')
+            #     emoji='\U0001F251'
+            #     await message.add_reaction(emoji)
+            
+            if("菜" in message.content):
+                await message.reply(file=discord.File('ur_noob.png'))    
+                
+            if("我只是" in message.content or "只有我" in message.content or "這我" in message.content):
+                await message.add_reaction(lookup("REGIONAL INDICATOR SYMBOL LETTER M"))
+                await message.add_reaction(lookup("REGIONAL INDICATOR SYMBOL LETTER E"))
+            
             if(not('!unbanwords' in message.content or '!banwords' in message.content)and (str(message.guild.id) in words) ):
                 for word in words[str(message.guild.id)]:
                     print(word)

@@ -41,6 +41,8 @@ class YTDLError(Exception):
 
 class YTDLSource(discord.PCMVolumeTransformer):
     YTDL_OPTIONS = {
+        #'username':'oauth2',
+        #'password':'',
         'format': 'bestaudio/best',
         'extractaudio': True,
         'audioformat': 'mp3',
@@ -54,6 +56,7 @@ class YTDLSource(discord.PCMVolumeTransformer):
         'no_warnings': True,
         'default_search': 'auto',
         'source_address': '0.0.0.0',
+        'verbose':True
     }
 
     FFMPEG_OPTIONS = {
@@ -93,10 +96,12 @@ class YTDLSource(discord.PCMVolumeTransformer):
     @classmethod
     async def create_source(cls, ctx: commands.Context, search: str, *, loop: asyncio.BaseEventLoop = None):
         loop = loop or asyncio.get_event_loop()
+        
+        
 
-        partial = functools.partial(cls.ytdl.extract_info, search, download=False, process=False)
+        partial = functools.partial(cls.ytdl.extract_info, search, download=False, process=True)
+        
         data = await loop.run_in_executor(None, partial)
-
         if data is None:
             raise YTDLError('Couldn\'t find anything that matches `{}`'.format(search))
 
