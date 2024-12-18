@@ -94,15 +94,15 @@ async def attend(page,attend_pwd=None):
         else:
             return "已點名或此課程尚未開啟點名"
 
-        page.goto(attend_site)
+        await page.goto(attend_site)
         
         await page.locator("xpath=//input[@id='id_studentpassword']").fill(attend_pwd)
         
-    page.locator("xpath=//input[contains(@id, 'id_status_')]").click()
-    page.locator("xpath=//input[@name='submitbutton']").click()
+    await page.get_by_label("出席Present").click()
+    await page.locator("xpath=//input[@name='submitbutton']").click()
     
     print('attend complete')
-
+    return "點名成功"
     await asyncio.sleep(2)
 
 
@@ -119,13 +119,14 @@ async def attend_main(course_name,attend_pwd):
         
         browser=await p.chromium.launch()
         page=await browser.new_page()
+        print('ready go to site')
         await page.goto("https://ecourse2.ccu.edu.tw/")
         print('in ecourse')
         
         await asyncio.sleep(1)
         
         login_site=await page.get_by_role("link", name="CCU單一登入").get_attribute("href")
-        
+        print(login_site)
         
         await page.goto(login_site)
         print('in login site')
