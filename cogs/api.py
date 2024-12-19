@@ -44,12 +44,13 @@ class Api(commands.Cog):
     async def _mygo(self,ctx:commands.Context,say=None):
         """mygo梗圖"""
         message=-1
+        length=len(pic_database)
         for i in range(length):
             if(say in pic_database[i]["圖片名稱"]):
                 message=i
                 break
         if(message==-1):
-            length=len(pic_database)
+            
             message=randint(0,length-1)
             
         await ctx.send(pic_database[message]['圖片連結'])
