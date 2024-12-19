@@ -41,7 +41,7 @@ class Api(commands.Cog):
         await ctx.send(embed=embed)
 
     @commands.command(name='mygo')
-    async def _mygo(self,ctx:commands.Context,say=None):
+    async def _mygo(self,ctx:commands.Context,say=""):
         """mygo梗圖"""
         message=-1
         length=len(pic_database)
