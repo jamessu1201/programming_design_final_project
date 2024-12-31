@@ -24,7 +24,11 @@ def get_result():
     
     url="https://app.scrapingbee.com/api/v1/"
     params={"api_key":api_key,"url":"https://leetcode.com/graphql/?query=%0A+query+questionOfToday+%7B%0A+activeDailyCodingChallengeQuestion+%7B%0A+date%0A+userStatus%0A+link+%0A+question+%7B+%0A+acRate+%0A+difficulty+%0A+freqBar+%0A+frontendQuestionId%3A+questionFrontendId+%0A+isFavor+%0A+paidOnly%3A+isPaidOnly+%0A+status+%0A+title+%0A+titleSlug+%0A+hasVideoSolution+%0A+hasSolution+%0A+topicTags+%7B+%0A+name++%0A+id+%0A+slug++%0A+%7D+%0A+%7D+%0A+%7D+%0A+%7D%0A+++","render_js":"true"}
-    return requests.get(url,params=params)
+    # try:
+    #     return requests.get(url,params=params)
+    # except:
+    #     return requests.get("https://leetcode.com/graphql/?query=%0A+query+questionOfToday+%7B%0A+activeDailyCodingChallengeQuestion+%7B%0A+date%0A+userStatus%0A+link+%0A+question+%7B+%0A+acRate+%0A+difficulty+%0A+freqBar+%0A+frontendQuestionId%3A+questionFrontendId+%0A+isFavor+%0A+paidOnly%3A+isPaidOnly+%0A+status+%0A+title+%0A+titleSlug+%0A+hasVideoSolution+%0A+hasSolution+%0A+topicTags+%7B+%0A+name++%0A+id+%0A+slug++%0A+%7D+%0A+%7D+%0A+%7D+%0A+%7D%0A+++")
+    return requests.get("https://leetcode.com/graphql/?query=%0A+query+questionOfToday+%7B%0A+activeDailyCodingChallengeQuestion+%7B%0A+date%0A+userStatus%0A+link+%0A+question+%7B+%0A+acRate+%0A+difficulty+%0A+freqBar+%0A+frontendQuestionId%3A+questionFrontendId+%0A+isFavor+%0A+paidOnly%3A+isPaidOnly+%0A+status+%0A+title+%0A+titleSlug+%0A+hasVideoSolution+%0A+hasSolution+%0A+topicTags+%7B+%0A+name++%0A+id+%0A+slug++%0A+%7D+%0A+%7D+%0A+%7D+%0A+%7D%0A+++")
 
 
 def get_link():
