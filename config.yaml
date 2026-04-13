@@ -12,4 +12,12 @@ roles:
     - 1153019088252186734
   birthday_ping: 1065064029527224341
   lol: 1095886102381985872
-  leetcode_contest: 1493168466541416499
+  leetcode_contest: 1330421796700164168
+
+channels_extra:
+  role_select: 1481618651923615856
+
+role_select:
+  - id: 1330421796700164168
+    label: LeetCode 周賽提醒
+    emoji: "📢"
