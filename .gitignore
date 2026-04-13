@@ -5,7 +5,8 @@ api_key/
 venv/
 
 cogs/log.py
-logs/
+logs/*
+!logs/.gitkeep
 __pycache__/
 *.pyc
 
