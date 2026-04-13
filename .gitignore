@@ -5,6 +5,7 @@ api_key/
 venv/
 
 cogs/log.py
+logs/
 __pycache__/
 *.pyc
 
