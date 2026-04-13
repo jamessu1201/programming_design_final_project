@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 BADWORD_JSON = "json/badword.json"
 AUTO_REPLIES_JSON = "json/auto_replies.json"
+REPLIES_STATE_JSON = "json/replies_state.json"
 
 
 def _load_auto_replies():
@@ -24,11 +25,26 @@ def _load_auto_replies():
         return []
 
 
+def _load_replies_state():
+    """Load per-guild on/off state. Returns dict like {"guild_id": true/false}"""
+    try:
+        with open(REPLIES_STATE_JSON, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+
+
+def _save_replies_state(state):
+    with open(REPLIES_STATE_JSON, "w", encoding="utf-8") as f:
+        json.dump(state, f)
+
+
 class Event(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.auto_replies = _load_auto_replies()
+        self.replies_enabled = _load_replies_state()
 
     @commands.command(name="reload_replies")
     @commands.is_owner()
@@ -36,6 +52,17 @@ class Event(commands.Cog):
         """重新載入梗圖自動回應設定"""
         self.auto_replies = _load_auto_replies()
         await ctx.send(f"已重新載入 {len(self.auto_replies)} 組自動回應")
+
+    @commands.command(name="autoreply")
+    @commands.has_permissions(manage_guild=True)
+    async def toggle_autoreply(self, ctx: commands.Context):
+        """開關關鍵字自動回應（管理員限定）"""
+        guild_id = str(ctx.guild.id)
+        current = self.replies_enabled.get(guild_id, True)
+        self.replies_enabled[guild_id] = not current
+        _save_replies_state(self.replies_enabled)
+        status = "開啟" if not current else "關閉"
+        await ctx.send(f"關鍵字自動回應已**{status}**")
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -54,25 +81,30 @@ class Event(commands.Cog):
                 words = {"useless": [""]}
                 json.dump(words, file)
 
-        if "菜" in message.content:
-            await message.reply(file=discord.File("ur_noob.png"))
+        # Auto replies (respects per-guild toggle)
+        guild_id = str(message.guild.id) if message.guild else None
+        replies_on = self.replies_enabled.get(guild_id, True) if guild_id else True
 
-        if "我只是" in message.content or "只有我" in message.content or "這我" in message.content:
-            await message.add_reaction(lookup("REGIONAL INDICATOR SYMBOL LETTER M"))
-            await message.add_reaction(lookup("REGIONAL INDICATOR SYMBOL LETTER E"))
+        if replies_on:
+            if "菜" in message.content:
+                await message.reply(file=discord.File("ur_noob.png"))
 
-        for entry in self.auto_replies:
-            if not entry["urls"]:
-                continue
-            for trigger in entry["triggers"]:
-                if trigger in message.content:
-                    await message.channel.send(random.choice(entry["urls"]))
-                    break
+            if "我只是" in message.content or "只有我" in message.content or "這我" in message.content:
+                await message.add_reaction(lookup("REGIONAL INDICATOR SYMBOL LETTER M"))
+                await message.add_reaction(lookup("REGIONAL INDICATOR SYMBOL LETTER E"))
 
+            for entry in self.auto_replies:
+                if not entry["urls"]:
+                    continue
+                for trigger in entry["triggers"]:
+                    if trigger in message.content:
+                        await message.channel.send(random.choice(entry["urls"]))
+                        break
+
+        # Bad word filter (always active, independent of autoreply toggle)
         if message.guild is None:
             return
 
-        guild_id = str(message.guild.id)
         if "!unbanwords" in message.content or "!banwords" in message.content:
             return
         if guild_id not in words:
