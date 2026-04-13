@@ -1,32 +1,42 @@
-# -*- coding: utf-8 -*- 
+# -*- coding: utf-8 -*-
 import asyncio
 import functools
 import itertools
+import logging
 import math
 import os
 import random
 import time
 import discord
 from discord.ext import commands
+import shutil
 import subprocess
+import sys
 from async_timeout import timeout
 import json
-import tempfile
-import shutil
 
-time_json="json/time.json"
+logger = logging.getLogger(__name__)
+
+# Find yt-dlp: prefer the one next to the running Python (venv/Scripts/)
+_venv_ytdlp = os.path.join(os.path.dirname(sys.executable), "yt-dlp")
+YTDLP = _venv_ytdlp if shutil.which(_venv_ytdlp) else "yt-dlp"
+logger.info("Using yt-dlp at: %s", shutil.which(YTDLP) or YTDLP)
+
+# Find ffmpeg: check project root first, then PATH
+_project_ffmpeg = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ffmpeg.exe")
+FFMPEG = _project_ffmpeg if os.path.isfile(_project_ffmpeg) else "ffmpeg"
+logger.info("Using ffmpeg at: %s", FFMPEG)
+
+time_json = "json/time.json"
 
 try:
-    with open(time_json,"rb") as f:
-        print("time.json exists")
-    f.close()
-except:
-    print("time.json does not exist,so created")
+    with open(time_json, "rb") as f:
+        pass
+except FileNotFoundError:
+    logger.info("time.json does not exist, creating")
     os.makedirs("json", exist_ok=True)
-    with open(time_json,"w+") as f:
-        a={"useless":""}
-        json.dump(a,f)
-    f.close()
+    with open(time_json, "w") as f:
+        json.dump({}, f)
 
 
 class VoiceError(Exception):
@@ -41,6 +51,7 @@ class YTDLSource(discord.PCMVolumeTransformer):
     FFMPEG_OPTIONS = {
         'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
         'options': '-vn',
+        'executable': FFMPEG,
     }
 
     def __init__(self, ctx: commands.Context, source: discord.FFmpegPCMAudio, *, data: dict, volume: float = 0.5):
@@ -98,7 +109,7 @@ class YTDLSource(discord.PCMVolumeTransformer):
             
             # 只獲取URL和標題
             cmd = [
-                'yt-dlp', 
+                YTDLP,
                 '--format', 'bestaudio',
                 '--get-url',
                 '--get-title',
@@ -128,12 +139,12 @@ class YTDLSource(discord.PCMVolumeTransformer):
                         'dislike_count': 0
                     }
             else:
-                print(f"簡化方法錯誤: {result.stderr}")
+                logger.warning("簡化方法錯誤: %s", result.stderr)
             
             return None
             
         except Exception as e:
-            print(f"簡化方法異常: {e}")
+            logger.warning("簡化方法異常: %s", e)
             return None
 
     @staticmethod
@@ -146,7 +157,7 @@ class YTDLSource(discord.PCMVolumeTransformer):
             
             # 先獲取基本資訊（標題和串流URL）
             cmd = [
-                'yt-dlp', 
+                YTDLP,
                 '--format', 'bestaudio',
                 '--get-url',
                 '--get-title',
@@ -166,7 +177,7 @@ class YTDLSource(discord.PCMVolumeTransformer):
                     # 獲取額外資訊
                     try:
                         info_cmd = [
-                            'yt-dlp',
+                            YTDLP,
                             '--dump-json',
                             '--no-playlist',
                             '--quiet',
@@ -193,9 +204,8 @@ class YTDLSource(discord.PCMVolumeTransformer):
                                 'tags': info_data.get('tags', []),
                                 'dislike_count': 0
                             }
-                    except:
-                        # 如果獲取詳細資訊失敗，返回基本資訊
-                        pass
+                    except Exception as e:
+                        logger.warning("獲取詳細資訊失敗，使用基本資訊: %s", e)
                     
                     # 返回基本資訊
                     return {
@@ -213,12 +223,12 @@ class YTDLSource(discord.PCMVolumeTransformer):
                         'dislike_count': 0
                     }
             else:
-                print(f"yt-dlp 錯誤: {result.stderr}")
+                logger.warning("yt-dlp 錯誤: %s", result.stderr)
             
             return None
             
         except Exception as e:
-            print(f"獲取音訊資訊錯誤: {e}")
+            logger.warning("獲取音訊資訊錯誤: %s", e)
             return None
 
     @staticmethod
@@ -232,7 +242,7 @@ class YTDLSource(discord.PCMVolumeTransformer):
                 elif len(parts) == 3:  # HH:MM:SS
                     return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
             return 0
-        except:
+        except (ValueError, IndexError):
             return 0
 
     @staticmethod
@@ -289,7 +299,7 @@ class Song:
             duration = "0:" + duration
 
         if dd - p < 0:
-            print('錯誤!')
+            logger.warning("進度條計算錯誤: 已播放時間超過總時長")
             return None
         if p != 0 and dd > 0:
             pp = int(p / dd * 15)
@@ -383,9 +393,9 @@ class VoiceState:
             music_cog = self.bot.get_cog('Music')
             if music_cog and ctx.guild.id in music_cog.voice_states:
                 del music_cog.voice_states[ctx.guild.id]
-        except:
-            pass
-        print('disconnect!')
+        except Exception as e:
+            logger.warning("disconnect cleanup error: %s", e)
+        logger.info("disconnect!")
         return
 
     @property
@@ -421,15 +431,15 @@ class VoiceState:
                 except asyncio.TimeoutError:
                     # 確認真的沒有正在播放的音樂
                     if not (self.voice and self.voice.is_playing()):
-                        print('播放序列空閒超過5分鐘，斷開連接')
+                        logger.info("播放序列空閒超過5分鐘，斷開連接")
                         self.bot.loop.create_task(self.stop())
                         self.exists = False
                         # 通知頻道即將斷線
                         if self._ctx and self._ctx.channel:
                             try:
                                 await self._ctx.channel.send("⚠️ 播放序列空閒超過5分鐘，機器人將自動離開語音頻道。")
-                            except:
-                                pass
+                            except Exception as e:
+                                logger.warning("無法發送斷線通知: %s", e)
                         return
                     else:
                         # 如果還在播放，繼續等待
@@ -448,7 +458,7 @@ class VoiceState:
                     with open(time_json, "w") as r:
                         json.dump(a, r)
                 except Exception as e:
-                    print(f"JSON 檔案錯誤: {e}")
+                    logger.warning("JSON 檔案錯誤: %s", e)
                 
                 # 發送播放資訊
                 embed = self.current.create_embed(begin)
@@ -469,20 +479,20 @@ class VoiceState:
                         with open(time_json, "w") as r:
                             json.dump(a, r)
                     except Exception as e:
-                        print(f"JSON 檔案錯誤: {e}")
+                        logger.warning("JSON 檔案錯誤: %s", e)
 
             await self.next.wait()
 
     def play_next_song(self, error=None):
         if error:
-            print(f'播放器錯誤: {error}')
+            logger.error("播放器錯誤: %s", error)
         
         # 檢查是否還有人在語音頻道
         if self.voice and self.voice.channel:
             # 計算非機器人成員數量
             human_members = [member for member in self.voice.channel.members if not member.bot]
             if len(human_members) == 0:
-                print("語音頻道沒有人類成員，準備自動離開")
+                logger.info("語音頻道沒有人類成員，準備自動離開")
                 self.bot.loop.create_task(self.auto_leave_empty_channel())
                 return
         
@@ -501,12 +511,12 @@ class VoiceState:
                     if self._ctx and self._ctx.channel:
                         try:
                             await self._ctx.channel.send("👤 語音頻道已無人，機器人自動離開。")
-                        except:
+                        except Exception:
                             pass
                     await self.stop()
                     self.exists = False
         except Exception as e:
-            print(f"自動離開檢查錯誤: {e}")
+            logger.warning("自動離開檢查錯誤: %s", e)
 
     def skip(self):
         self.skip_votes.clear()
@@ -519,9 +529,9 @@ class VoiceState:
         if self.voice:
             try:
                 await self.voice.disconnect()
-                print("已斷開語音連接")
-            except:
-                print("斷開連接時發生錯誤")
+                logger.info("已斷開語音連接")
+            except Exception as e:
+                logger.warning("斷開連接時發生錯誤: %s", e)
             self.voice = None
 
 
@@ -776,8 +786,11 @@ class Music(commands.Cog):
             await ctx.send("正在處理播放清單，請稍候...")
             try:
                 # 使用命令行獲取播放清單
-                cmd = ['yt-dlp', '--flat-playlist', '--get-id', search]
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                cmd = [YTDLP, '--flat-playlist', '--get-id', search]
+                loop = asyncio.get_event_loop()
+                result = await loop.run_in_executor(
+                    None, lambda: subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                )
                 
                 if result.returncode == 0:
                     video_ids = result.stdout.strip().split('\n')
@@ -790,7 +803,7 @@ class Music(commands.Cog):
                                 count += 1
                                 await asyncio.sleep(0.5)
                             except Exception as e:
-                                print(f"無法新增歌曲 {url}: {e}")
+                                logger.warning("無法新增歌曲 %s: %s", url, e)
                                 continue
                     
                     return await ctx.send(f'成功新增播放清單！共新增 {count} 首歌曲。')
@@ -832,7 +845,7 @@ class Music(commands.Cog):
                 song = Song(source)
                 await ctx.voice_state.songs.put(song)
             except Exception as e:
-                print(f"靜默新增歌曲失敗: {e}")
+                logger.warning("靜默新增歌曲失敗: %s", e)
                 raise
 
     @commands.command(name='testt')
@@ -840,7 +853,10 @@ class Music(commands.Cog):
         """測試 yt-dlp 是否正常工作"""
         try:
             # 測試版本
-            result = subprocess.run(['yt-dlp', '--version'], capture_output=True, text=True)
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None, lambda: subprocess.run([YTDLP, '--version'], capture_output=True, text=True)
+            )
             if result.returncode == 0:
                 await ctx.send(f"✅ yt-dlp 正常工作，版本: {result.stdout.strip()}")
             else:
@@ -851,7 +867,7 @@ class Music(commands.Cog):
                 await ctx.send(f"🔍 正在測試URL: {url}")
                 
                 test_cmd = [
-                    'yt-dlp',
+                    YTDLP,
                     '--format', 'bestaudio',
                     '--get-url',
                     '--get-title',
@@ -860,7 +876,9 @@ class Music(commands.Cog):
                     url
                 ]
                 
-                test_result = subprocess.run(test_cmd, capture_output=True, text=True, timeout=30)
+                test_result = await loop.run_in_executor(
+                    None, lambda: subprocess.run(test_cmd, capture_output=True, text=True, timeout=30)
+                )
                 
                 if test_result.returncode == 0:
                     lines = test_result.stdout.strip().split('\n')
@@ -899,9 +917,9 @@ class Music(commands.Cog):
     @commands.command(hidden=True)
     @commands.is_owner()
     async def check(self, ctx: commands.Context):
-        print(type(ctx.voice_client))
-        if type(ctx.voice_client) is type(None):
-            print('yes')
+        logger.info("voice_client type: %s", type(ctx.voice_client))
+        if ctx.voice_client is None:
+            logger.info("no voice client")
 
 async def setup(bot):
     await bot.add_cog(Music(bot))

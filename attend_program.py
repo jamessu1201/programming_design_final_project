@@ -1,5 +1,6 @@
 # -*- coding:utf-8 -*-
 import json
+import logging
 from twocaptcha import TwoCaptcha
 
 import platform
@@ -12,6 +13,19 @@ from selenium.webdriver.support.ui import WebDriverWait,Select
 from selenium.webdriver.support import expected_conditions as EC
 
 import time
+
+logger = logging.getLogger(__name__)
+
+
+def _xpath_escape(s):
+    if "'" not in s:
+        return f"'{s}'"
+    if '"' not in s:
+        return f'"{s}"'
+    return "concat(" + ",".join(
+        f'"{part}"' if "'" in part else f"'{part}'"
+        for part in s.replace("'", "'\u0000'").split("\u0000")
+    ) + ")"
 
 def solve(key,solver,driver):
   try:
@@ -48,13 +62,13 @@ def init():
 	try:
 		with open("private/two_captcha.txt",'r') as key_file:
 			key=key_file.read()
-	except:
+	except FileNotFoundError:
 		return "請去https://2captcha.com/建立api金鑰"
 
 	try:
 		with open("private/json/account.json","r") as js:
 			data=json.load(js)
-	except:
+	except (FileNotFoundError, json.JSONDecodeError):
 		return "請建立帳號密碼"
 	
 
@@ -71,7 +85,7 @@ def init():
  
 	driver.delete_all_cookies() #清cookie
 	
-	print("initiate complete.")
+	logger.info("initiate complete.")
  
 	return driver,solver,data
 
@@ -109,7 +123,7 @@ def login(driver,solver,data):
 	    driver.find_element(By.XPATH,"//button[@name='continue']").click()
      
      
-	print('login complete.')
+	logger.info("login complete.")
 
 
 
@@ -121,7 +135,8 @@ def attend(driver,attend_pwd=None):
 	if(attend_pwd!=None):
 		try:
 			attend_site=driver.find_element(By.XPATH,"//table[@class='generaltable attwidth boxaligncenter']//tr[@class='lastrow']").find_element(By.XPATH,"//a[contains(text(), '登記出缺席')]")
-		except:
+		except Exception as e:
+			logger.warning("找不到簽到連結: %s", e)
 			driver.quit()
 			return "已點名或此課程尚未開啟點名"
 
@@ -138,7 +153,7 @@ def attend(driver,attend_pwd=None):
 
 	try:
 		table=driver.find_element(By.XPATH,"//table[@class='generaltable attwidth boxaligncenter']//tr[@class='lastrow']")
-	except:
+	except Exception:
 		return "密碼錯誤，未點名"
 
 	return "點名成功"
@@ -150,16 +165,15 @@ def attend(driver,attend_pwd=None):
 def attend_main(course_name,attend_pwd):
  
 	result=init()
-	if(type(result)==tuple()):
-		print('yes')
-	print(type(result))
+	if isinstance(result, str):
+		return result
  
 	driver=result[0]
 	solver=result[1]
 	data=result[2]
 
 #----------------------------   init complete
-	print("ready to get driver.")
+	logger.info("ready to get driver.")
  
 
 
@@ -167,7 +181,7 @@ def attend_main(course_name,attend_pwd):
 	driver.get("https://ecourse2.ccu.edu.tw/")
 
 	
-	print("driver get complete.")
+	logger.info("driver get complete.")
 
 	login_site=driver.find_element(By.XPATH,"//a[contains(text(), 'CCU單一登入')]")
 
@@ -181,17 +195,18 @@ def attend_main(course_name,attend_pwd):
 
 	
 	
-	try:																#check whether id is correct
+	try:
 		page=driver.find_element(By.XPATH,"//div[@id='page']")
-	except:
+	except Exception:
 		driver.quit()
 		return "帳號或密碼錯誤"
 	
 	
 
-	try:																				#check whether course name is exist
-		course=page.find_element(By.XPATH,f"//a[contains(text(), '{course_name}')]")
-	except:
+	try:
+		course=page.find_element(By.XPATH,f"//a[contains(text(), {_xpath_escape(course_name)})]")
+	except Exception as e:
+		logger.warning("找不到課程: %s", e)
 		driver.quit()
 		return "未知課程，請重新輸入"
 
@@ -218,8 +233,6 @@ def attend_with_link(link):
     
 	result=init()
 
-	print(result)
- 
 	driver=result[0]
 	solver=result[1]
 	data=result[2]
@@ -242,4 +255,5 @@ def attend_with_link(link):
 		return attend(driver)
 
 
-attend_main('aaa','aaa')
+if __name__ == "__main__":
+    attend_main('aaa','aaa')

@@ -1,95 +1,94 @@
 # -*- coding: utf-8 -*-
 import os
+import logging
+
 import discord
-from discord.ext.commands.core import command
-from async_timeout import timeout
 from discord.ext import commands
-import json
-from discord.ext.commands.core import has_guild_permissions
 from discord.utils import get
+import json
+import yaml
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-prefix_json="json/prefix.json"    #prefix.json path
+PREFIX_JSON = "json/prefix.json"
+CONFIG_PATH = "config.yaml"
+DEFAULT_PREFIX = "!"
 
+with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+    config = yaml.safe_load(f)
 
-default_prefixes = "!"            #if prefix does not set,then use default
-
-
-
-
-                             
-token=os.environ.get('bot_token')   #if token doesn't exist then return
-if(token==None):
+token = os.environ.get("bot_token")
+if token is None:
     try:
-        with open('api_key/token.txt','r') as bot_token:
-            token=bot_token.read()
-    except:
-        print("token does not exist,please create a bot")
+        with open("api_key/token.txt", "r") as bot_token:
+            token = bot_token.read().strip()
+    except FileNotFoundError:
+        logger.error("token does not exist, please create a bot")
         os._exit(0)
 
-try:                              #if file not exist then create
-    with open(prefix_json) as f:
-        print("prefix.json exists")
+try:
+    with open(PREFIX_JSON) as f:
         custom_prefixes = json.load(f)
-    f.close()
-except:
-    with open(prefix_json,"w+") as f:
-        print("prefix.json does not exist,so created")
-        prefix = {"useless":""}
-        json.dump(prefix,f)
-    f.close()
+except FileNotFoundError:
+    logger.info("prefix.json does not exist, creating")
+    with open(PREFIX_JSON, "w") as f:
+        json.dump({}, f)
 
 
 def main():
     async def determine_prefix(bot, message):
         guild = message.guild
-        #Only allow custom prefixs in guild
         if guild:
-            with open(prefix_json) as f:
-                custom_prefixes = json.load(f)
-            f.close()
-            print(custom_prefixes.get(str(guild.id), default_prefixes))
-            print(custom_prefixes)
-            return custom_prefixes.get(str(guild.id), default_prefixes)
-        else:
-            return default_prefixes
-    owners=[]
+            with open(PREFIX_JSON) as f:
+                prefixes = json.load(f)
+            return prefixes.get(str(guild.id), DEFAULT_PREFIX)
+        return DEFAULT_PREFIX
+
+    owners = []
     try:
-        with open("private/owners.txt","r") as r:
-            raw=r.read()
+        with open("private/owners.txt", "r") as r:
+            raw = r.read()
             for owner in raw.split(","):
-                owners.append(int(owner))
-        r.close()
-        print(owners)
-    except:
-        pass
-    bot = commands.Bot(command_prefix=determine_prefix,owner_ids=set(owners), description='james and michael的萬能機器人',intents=discord.Intents.all())
-    
-    
-    
+                owners.append(int(owner.strip()))
+    except FileNotFoundError:
+        logger.warning("private/owners.txt not found, no owners set")
+
+    intents = discord.Intents.default()
+    intents.message_content = True
+    intents.members = True
+    intents.voice_states = True
+    intents.reactions = True
+
+    bot = commands.Bot(
+        command_prefix=determine_prefix,
+        owner_ids=set(owners),
+        description="james and michael的萬能機器人",
+        intents=intents,
+    )
+    bot.config = config
+
     @bot.event
     async def on_ready():
-        intents = discord.Intents().default()
-        intents.message_content = True
         for file in os.listdir("cogs"):
-            if(file.endswith(".py") and not file.startswith("_")):
-                print(f"cogs.{file[:-3]}")
+            if file.endswith(".py") and not file.startswith("_"):
+                logger.info("Loading cogs.%s", file[:-3])
                 await bot.load_extension(f"cogs.{file[:-3]}")
-        print('Logged in as:\n{0.user.name}\n{0.user.id}'.format(bot))
-    
+        logger.info("Logged in as: %s (%s)", bot.user.name, bot.user.id)
+
     @bot.event
     async def on_raw_reaction_add(payload):
-        if payload.channel_id == 980486619368935464:
+        reaction_channel = config["channels"]["reaction_delete"]
+        if payload.channel_id == reaction_channel:
             if payload.emoji.name == "⏭":
                 channel = bot.get_channel(payload.channel_id)
                 message = await channel.fetch_message(payload.message_id)
                 reaction = get(message.reactions, emoji=payload.emoji.name)
-                if reaction and reaction.count >=2:
+                if reaction and reaction.count >= 2:
                     await message.delete()
 
     bot.run(token)
-    
 
-if(__name__=='__main__'):         
+
+if __name__ == "__main__":
     main()
-    

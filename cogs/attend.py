@@ -1,51 +1,45 @@
 # -*- coding: utf-8 -*-
-
 import os
 import sys
+import logging
 
 import discord
-
-
 from discord.ext import commands
-
 import asyncio
 
 sys.path.append(os.path.abspath(".."))
-from attend_playwright import *
+from attend_playwright import attend_main
+from attend_program import attend_with_link
 
+logger = logging.getLogger(__name__)
 
 
 class Attend(commands.Cog):
-    def __init__(self,bot:commands.Bot):
-        self.bot=bot
-
-
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
 
     async def cog_command_error(self, ctx: commands.Context, error: commands.CommandError):
-        await ctx.send('An error occurred: {}'.format(str(error)))
+        await ctx.send("An error occurred: {}".format(str(error)))
 
-
-    @commands.command(name='attend') 
-    async def _attend(self, ctx: commands.Context, course_name: str = "None" , pwd: str= "None"):
+    @commands.command(name="attend")
+    async def _attend(self, ctx: commands.Context, course_name: str = "None", pwd: str = "None"):
         """點名"""
-        if(course_name=="None" or pwd=="None"):
+        if course_name == "None" or pwd == "None":
             await ctx.send("輸入錯誤，請重新輸入")
             return
         await ctx.send("點名中...")
-        result=await attend_main(course_name,pwd)
+        result = await attend_main(course_name, pwd)
         await ctx.send(result)
-        
+
     @commands.Cog.listener()
-    async def on_message(self,message:discord.Message):
+    async def on_message(self, message: discord.Message):
         if message.author.id != self.bot.user.id:
-            if("https://ecourse2.ccu.edu.tw/mod/attendance/attendance.php?qrpass=" in message.content):
+            if "https://ecourse2.ccu.edu.tw/mod/attendance/attendance.php?qrpass=" in message.content:
                 await message.channel.send("點名中...")
-                result=attend_with_link(message.content)
+                loop = asyncio.get_event_loop()
+                result = await loop.run_in_executor(None, attend_with_link, message.content)
                 await message.channel.send(result)
 
 
 async def setup(bot):
     await bot.add_cog(Attend(bot))
-
-    
-    

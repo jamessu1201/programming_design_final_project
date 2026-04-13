@@ -1,16 +1,16 @@
 # -*- coding: utf-8 -*-
+import logging
 import discord
 from discord.ext import commands
-import asyncio
 import requests
 import random
-import datetime
 from bs4 import BeautifulSoup
 import os
 import re
 import json
 from dateutil import parser
-import base64
+
+logger = logging.getLogger(__name__)
 
 pic_database="wrong"
 
@@ -18,7 +18,7 @@ with open("json/pic_database.json", "r") as f:
     pic_database = json.load(f)
 
 if pic_database == "wrong":
-    print("error:pic_database")
+    logger.error("error: pic_database failed to load")
     exit(1)
 
 weapons={'匕首':'Dagger','黑刀':'Black Knife','格擋匕首':'Parrying Dagger','慈悲短劍':'Misericorde','逆刺':'Reduvia','結晶小刀':'Crystal Knife','慶典小鐮刀':'Celebrant-s Sickle','輝石克力士':'Glintstone Kris','蠍尾針':'Scorpion-s Stinger','單刃小刀':'Great Knife','脇差':'Wakizashi','五指劍':'Cinquedea','象牙小鐮刀':'Ivory Sickle','染血短刀':'Bloodstained Dagger','黃銅短刀':'Erdsteel Dagger','使命短刀':'Blade of Calling','長劍':'Longsword','短劍':'Short Sword','闊劍':'Broadsword','君王軍直劍':'Lordsworn-s Straight Sword','拉茲利輝石劍':'Lazuli Glintstone Sword','結晶劍':'Crystal Sword','卡利亞騎士劍':'Carian Knight-s Sword','夜與火之劍':'Sword of Night and Flame','托莉娜劍':'Sword of St Trina','黃金墓碑':'Golden Epitaph','手杖劍':'Cane Sword','儀式直劍':'Ornamental Straight Sword','老舊直劍':'Weathered Straight Sword','戰鷹爪形劍':'Warhawk-s Talon','權貴細身劍':'Noble-s Slender Sword','歐赫寶劍':'Regalia of Eochaid','米凱拉騎士劍':'Miquellan Knight-s Sword','秘文劍':'Coded Sword','腐敗結晶劍':'Rotten Crystal Sword','失鄉騎士大劍':'Banished Knight-s Greatsword','混種大劍':'Bastard Sword','大劍':'Claymore','焰形大劍':'Flamberge','石像鬼黑劍':'Gargoyle-s Blackblade','石像鬼大劍':'Gargoyle-s Greatsword','騎士大劍':'Knight-s Greatsword','君王軍大劍':'Lordsworn-s Greatsword','瑪雷家行刑劍':'Marais Executioner-s Sword','滅洛斯劍':'Sword of Milos','暗月大劍':'Dark Moon Greatsword','褻瀆聖劍':'Blasphemous Blade','白王劍':'Alabaster Lord-s Sword','奧陶琵斯大劍':'Ordovis-s Greatsword','黃金律法大劍':'Golden Order Greatsword','神軀化劍':'Sacred Relic Sword','分岔大劍':'Forked Greatsword','赫芬尖塔劍':'Helphen-s Steeple','死亡鉤棒':'Death-s Poker','鐵制大劍':'Iron Greatsword','緊密孿生劍':'Inseparable Sword','巨劍':'Greatsword',
@@ -67,10 +67,10 @@ class Api(commands.Cog):
             if(target['records']['location'][i]['locationName']==region):
                 dd=target['records']['location'][i]['weatherElement']
                 break
-        print(len(dd))
+        logger.debug("weather elements: %d", len(dd))
         for j in range(len(dd)):
             a=dd[j]
-            print(a)
+            logger.debug("weather element: %s", a)
         await ctx.send(region+"未來36小時天氣預報")
         for k in range(len(dd[0]['time'])):
             embed=discord.Embed()
@@ -127,14 +127,14 @@ class Api(commands.Cog):
             try:
                 with open('api_key/access_key.txt','r') as r:
                     access_key=r.read()
-            except:
+            except FileNotFoundError:
                 await ctx.send("no picture_access_key")
                 return
 
         url = 'https://api.unsplash.com/search/photos'
         querystring = {'query': query, 'client_id': access_key}
         response = requests.get(url, params=querystring, allow_redirects=True).json()
-        print(response)
+        logger.debug("API response received")
 
     @commands.command(hidden=True)
     async def ccu_csie_camp(self,ctx:commands.Context,req:str=None):
@@ -162,7 +162,7 @@ class Api(commands.Cog):
                 try:
                     with open('api_key/api.txt','r') as r:
                         api_key=r.read()
-                except:
+                except FileNotFoundError:
                     await ctx.send("no holodex_api_key")
                     return
             url = "https://holodex.net/api/v2/live"
@@ -173,15 +173,13 @@ class Api(commands.Cog):
             }
             response = requests.get(url, headers=headers, params=querystring).json()
             
-            # print(response)
-            
             for i in range(len(response)):
-                print(response[i]['status'])
+                logger.debug("hololive status: %s", response[i]['status'])
                 if(response[i]['status']=='live'):
                     livestart=response[i]['start_actual']
                 elif(response[i]['status']=='upcoming'):
                     livestart=response[i]['start_scheduled']
-                print(livestart)
+                logger.debug("livestart: %s", livestart)
                 if(livestart==None):
                     livestart='結束'
                 else:
@@ -201,7 +199,7 @@ class Api(commands.Cog):
                 t=t.lower()
                 if((not 'free' in t) and (not 'chat' in t) and (not 'schedule' in t)):
                     await ctx.send(embed=embed)
-            print("list over")
+            logger.debug("hololive list complete")
             return
         
         await ctx.send("類別輸入錯誤，請重新輸入(live,upcoming)")

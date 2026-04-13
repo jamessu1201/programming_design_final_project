@@ -1,13 +1,26 @@
 test.py
 private/
 api_key/
-json/
+.env
+venv/
+
 cogs/log.py
-__pycache__
+__pycache__/
+*.pyc
+
 *.html
 *.png
 *.jpg
-*.txt
 log*
 less*
 final_project/
+
+# Large binaries — use package managers instead
+*.exe
+chrome-win64/
+chrome-linux64/
+chromedriver-linux64/
+driver/
+
+# Data files (pic_database is large; config JSONs are tracked separately)
+json/pic_database.json

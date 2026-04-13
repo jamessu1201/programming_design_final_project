@@ -1,74 +1,75 @@
-import platform
-
+# -*- coding: utf-8 -*-
+import logging
+import datetime
 import requests
 
-import datetime
+logger = logging.getLogger(__name__)
 
-import time
+GRAPHQL_QUERY = (
+    "query questionOfToday { activeDailyCodingChallengeQuestion {"
+    " date userStatus link question {"
+    " acRate difficulty freqBar frontendQuestionId: questionFrontendId"
+    " isFavor paidOnly: isPaidOnly status title titleSlug"
+    " hasVideoSolution hasSolution topicTags { name id slug } } } }"
+)
 
-import json
-
-
-weekdays={'0':'Mon','1':'Tue','2':'Wed','3':'Thu','4':'Fri','5':'Sat','6':'Sun'}
-
-months={'1':'Jan','2':'Feb','3':'Mar','4':'Apr','5':'May','6':'Jun','7':'Jul','8':'Aug','9':'Sep','10':'Oct','11':'Nov','12':'Dec'}
-
-link=''
-
-with open('private/scrapingbee.txt') as read:
-    api_key=read.read()
-
+_last_link = ""
 
 
 def get_result():
-    
-    url="https://app.scrapingbee.com/api/v1/"
-    params={"api_key":api_key,"url":"https://leetcode.com/graphql/?query=%0A+query+questionOfToday+%7B%0A+activeDailyCodingChallengeQuestion+%7B%0A+date%0A+userStatus%0A+link+%0A+question+%7B+%0A+acRate+%0A+difficulty+%0A+freqBar+%0A+frontendQuestionId%3A+questionFrontendId+%0A+isFavor+%0A+paidOnly%3A+isPaidOnly+%0A+status+%0A+title+%0A+titleSlug+%0A+hasVideoSolution+%0A+hasSolution+%0A+topicTags+%7B+%0A+name++%0A+id+%0A+slug++%0A+%7D+%0A+%7D+%0A+%7D+%0A+%7D%0A+++","render_js":"true"}
-    # try:
-    #     return requests.get(url,params=params)
-    # except:
-    #     return requests.get("https://leetcode.com/graphql/?query=%0A+query+questionOfToday+%7B%0A+activeDailyCodingChallengeQuestion+%7B%0A+date%0A+userStatus%0A+link+%0A+question+%7B+%0A+acRate+%0A+difficulty+%0A+freqBar+%0A+frontendQuestionId%3A+questionFrontendId+%0A+isFavor+%0A+paidOnly%3A+isPaidOnly+%0A+status+%0A+title+%0A+titleSlug+%0A+hasVideoSolution+%0A+hasSolution+%0A+topicTags+%7B+%0A+name++%0A+id+%0A+slug++%0A+%7D+%0A+%7D+%0A+%7D+%0A+%7D%0A+++")
-    return requests.get("https://leetcode.com/graphql/?query=%0A+query+questionOfToday+%7B%0A+activeDailyCodingChallengeQuestion+%7B%0A+date%0A+userStatus%0A+link+%0A+question+%7B+%0A+acRate+%0A+difficulty+%0A+freqBar+%0A+frontendQuestionId%3A+questionFrontendId+%0A+isFavor+%0A+paidOnly%3A+isPaidOnly+%0A+status+%0A+title+%0A+titleSlug+%0A+hasVideoSolution+%0A+hasSolution+%0A+topicTags+%7B+%0A+name++%0A+id+%0A+slug++%0A+%7D+%0A+%7D+%0A+%7D+%0A+%7D%0A+++")
+    url = "https://leetcode.com/graphql/"
+    return requests.get(url, params={"query": GRAPHQL_QUERY})
 
 
 def get_link():
-    print("link:",link)
-    return link
-
+    return _last_link
 
 
 def main():
-    
-    global link
-    
-    now=datetime.datetime.now()
-    
-    result=get_result()
-    
-    print(result.request.url)
-    print(result)
+    global _last_link
 
-    j=result.json()
+    now = datetime.datetime.now()
+    result = get_result()
+    j = result.json()
 
     try:
-        question=j['data']['activeDailyCodingChallengeQuestion']['question']
-    except:
+        question = j["data"]["activeDailyCodingChallengeQuestion"]["question"]
+    except (KeyError, TypeError) as e:
+        logger.error("LeetCode API 回傳格式異常: %s", e)
         return "出現錯誤QQ"
-    
-    print(question)
 
-    title=question['title']
-    
-    link="https://leetcode.com"+j['data']['activeDailyCodingChallengeQuestion']['link']+"?envType=daily-question&envId="+f"{now.year}-{now.month}-{now.day}"
-    print(link)
+    title = question["title"]
+    qid = question["frontendQuestionId"]
+    _last_link = (
+        "https://leetcode.com"
+        + j["data"]["activeDailyCodingChallengeQuestion"]["link"]
+        + f"?envType=daily-question&envId={now.year}-{now.month}-{now.day}"
+    )
 
-    id=question['frontendQuestionId']
+    full_title = f"{qid}. {title}"
+    return f"{now.month}/{now.day} {full_title}", question["difficulty"]
 
-    print(id+'. '+title)
-    
-    title=id+'. '+title
-    
-    return str(now.month)+"/"+str(now.day)+" "+title,question['difficulty']
 
-print(main())
-print(get_link())
+CONTEST_QUERY = "query { upcomingContests { title startTime } }"
+
+
+def get_upcoming_contests():
+    url = "https://leetcode.com/graphql/"
+    try:
+        r = requests.post(url, json={"query": CONTEST_QUERY}, timeout=10)
+        data = r.json()["data"]["upcomingContests"]
+        contests = []
+        for c in data:
+            start = datetime.datetime.fromtimestamp(c["startTime"], tz=datetime.timezone.utc)
+            contests.append({"title": c["title"], "start": start})
+        return contests
+    except Exception as e:
+        logger.error("取得比賽資訊失敗: %s", e)
+        return []
+
+
+if __name__ == "__main__":
+    print(main())
+    print(get_link())
+    for c in get_upcoming_contests():
+        print(f"{c['title']} - {c['start']}")
