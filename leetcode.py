@@ -2,6 +2,7 @@
 import logging
 import datetime
 import requests
+from bs4 import BeautifulSoup, NavigableString
 
 logger = logging.getLogger(__name__)
 
@@ -9,11 +10,12 @@ GRAPHQL_QUERY = (
     "query questionOfToday { activeDailyCodingChallengeQuestion {"
     " date userStatus link question {"
     " acRate difficulty freqBar frontendQuestionId: questionFrontendId"
-    " isFavor paidOnly: isPaidOnly status title titleSlug"
+    " isFavor paidOnly: isPaidOnly status title titleSlug content"
     " hasVideoSolution hasSolution topicTags { name id slug } } } }"
 )
 
 _last_link = ""
+_last_description = ""
 
 
 def get_result():
@@ -25,8 +27,54 @@ def get_link():
     return _last_link
 
 
+def get_description():
+    return _last_description
+
+
+def _html_to_markdown(html):
+    if not html:
+        return ""
+    soup = BeautifulSoup(html, "html.parser")
+
+    def walk(node, in_pre=False):
+        if isinstance(node, NavigableString):
+            return str(node)
+        name = (node.name or "").lower()
+        next_pre = in_pre or name == "pre"
+        children = "".join(walk(c, next_pre) for c in node.children)
+        if in_pre:
+            return children
+        if name in ("p", "div"):
+            return children + "\n\n"
+        if name == "br":
+            return "\n"
+        if name in ("strong", "b"):
+            return f"**{children}**"
+        if name in ("em", "i"):
+            return f"*{children}*"
+        if name == "code":
+            return f"`{children}`"
+        if name == "pre":
+            return f"```\n{children.strip()}\n```\n\n"
+        if name in ("ul", "ol"):
+            return children + "\n"
+        if name == "li":
+            return f"- {children.strip()}\n"
+        if name == "sup":
+            return f"^{children}"
+        if name == "sub":
+            return f"_{children}"
+        return children
+
+    text = walk(soup)
+    text = text.replace("\u00a0", " ")
+    while "\n\n\n" in text:
+        text = text.replace("\n\n\n", "\n\n")
+    return text.strip()
+
+
 def main():
-    global _last_link
+    global _last_link, _last_description
 
     now = datetime.datetime.now()
     result = get_result()
@@ -45,6 +93,7 @@ def main():
         + j["data"]["activeDailyCodingChallengeQuestion"]["link"]
         + f"?envType=daily-question&envId={now.year}-{now.month}-{now.day}"
     )
+    _last_description = _html_to_markdown(question.get("content"))
 
     full_title = f"{qid}. {title}"
     return f"{now.month}/{now.day} {full_title}", question["difficulty"]
@@ -71,5 +120,6 @@ def get_upcoming_contests():
 if __name__ == "__main__":
     print(main())
     print(get_link())
+    print(get_description())
     for c in get_upcoming_contests():
         print(f"{c['title']} - {c['start']}")

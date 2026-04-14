@@ -9,13 +9,27 @@ from discord.ext import commands, tasks
 import os
 import sys
 sys.path.append(os.path.abspath(".."))
-from leetcode import main as leetcode_main, get_link, get_upcoming_contests
+from leetcode import main as leetcode_main, get_link, get_description, get_upcoming_contests
 
 logger = logging.getLogger(__name__)
 
 UTC_PLUS_8 = datetime.timezone(datetime.timedelta(hours=8))
 BIRTHDAY_TIME = datetime.time(hour=0, minute=0, tzinfo=UTC_PLUS_8)
 LEETCODE_TIME = datetime.time(hour=8, minute=5, tzinfo=UTC_PLUS_8)
+
+
+def _chunk_text(text, limit):
+    chunks = []
+    remaining = text
+    while len(remaining) > limit:
+        cut = remaining.rfind("\n", 0, limit)
+        if cut <= 0:
+            cut = limit
+        chunks.append(remaining[:cut].rstrip())
+        remaining = remaining[cut:].lstrip("\n")
+    if remaining:
+        chunks.append(remaining)
+    return chunks
 
 
 class Auto(commands.Cog):
@@ -118,6 +132,10 @@ class Auto(commands.Cog):
         )
         await thread.send(get_link())
         await thread.send("Difficulty: " + result[1])
+        description = get_description()
+        if description:
+            for chunk in _chunk_text(description, 1900):
+                await thread.send(chunk)
 
     @leetcode.before_loop
     async def before_leetcode(self):
