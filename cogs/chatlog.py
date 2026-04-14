@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import json
 import logging
 import os
 import re
@@ -35,18 +36,41 @@ class ChatLog(commands.Cog):
         guild_dir = os.path.join(LOGS_DIR, guild_name)
         os.makedirs(guild_dir, exist_ok=True)
 
-        log_path = os.path.join(guild_dir, f"{channel_name}.txt")
-        timestamp = message.created_at.astimezone(
+        txt_path = os.path.join(guild_dir, f"{channel_name}.txt")
+        jsonl_path = os.path.join(guild_dir, f"{channel_name}.jsonl")
+
+        local_dt = message.created_at.astimezone(
             datetime.timezone(datetime.timedelta(hours=8))
-        ).strftime("%Y-%m-%d %H:%M:%S")
+        )
+        timestamp = local_dt.strftime("%Y-%m-%d %H:%M:%S")
 
-        line = f"[{timestamp}] {message.author.display_name}: {message.content}"
-        if message.attachments:
-            urls = ", ".join(a.url for a in message.attachments)
-            line += f" [附件: {urls}]"
+        author = message.author
+        username = author.name
+        display_name = author.display_name
+        attachment_urls = [a.url for a in message.attachments]
 
-        with open(log_path, "a", encoding="utf-8") as f:
+        line = f"[{timestamp}] @{username} ({display_name}): {message.content}"
+        if attachment_urls:
+            line += f" [附件: {', '.join(attachment_urls)}]"
+
+        with open(txt_path, "a", encoding="utf-8") as f:
             f.write(line + "\n")
+
+        record = {
+            "ts": local_dt.isoformat(),
+            "guild_id": str(message.guild.id),
+            "guild_name": message.guild.name,
+            "channel_id": str(message.channel.id),
+            "channel_name": message.channel.name,
+            "message_id": str(message.id),
+            "user_id": str(author.id),
+            "username": username,
+            "display_name": display_name,
+            "content": message.content,
+            "attachments": attachment_urls,
+        }
+        with open(jsonl_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
 async def setup(bot):
