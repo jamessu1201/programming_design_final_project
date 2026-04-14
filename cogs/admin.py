@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import asyncio
 import importlib
+import json
 import logging
 import os
 import subprocess
@@ -14,6 +15,21 @@ logger = logging.getLogger(__name__)
 
 EXTERNAL_MODULES = ["leetcode", "attend_playwright", "attend_program"]
 AUTO_DEPLOY_INTERVAL = 30  # seconds
+AUTO_DEPLOY_STATE = "json/autodeploy.json"
+
+
+def _read_autodeploy_state():
+    try:
+        with open(AUTO_DEPLOY_STATE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _write_autodeploy_state(state):
+    os.makedirs(os.path.dirname(AUTO_DEPLOY_STATE), exist_ok=True)
+    with open(AUTO_DEPLOY_STATE, "w", encoding="utf-8") as f:
+        json.dump(state, f)
 
 
 class Admin(commands.Cog):
@@ -23,10 +39,33 @@ class Admin(commands.Cog):
         self.bot = bot
         self._auto_deploy = False
         self._deploy_channel = None
+        self._resume_task = bot.loop.create_task(self._maybe_resume_autodeploy())
 
     def cog_unload(self):
         if self.git_poll.is_running():
             self.git_poll.cancel()
+        if self._resume_task and not self._resume_task.done():
+            self._resume_task.cancel()
+
+    async def _maybe_resume_autodeploy(self):
+        """If autodeploy was on before a reload/restart, turn it back on."""
+        await self.bot.wait_until_ready()
+        state = _read_autodeploy_state()
+        if not state.get("enabled"):
+            return
+        channel_id = state.get("channel_id")
+        if not channel_id:
+            return
+        try:
+            channel = await self.bot.fetch_channel(channel_id)
+        except discord.HTTPException as e:
+            logger.warning("Cannot resume autodeploy, channel fetch failed: %s", e)
+            return
+        self._deploy_channel = channel
+        self._auto_deploy = True
+        if not self.git_poll.is_running():
+            self.git_poll.start()
+        logger.info("Auto-deploy resumed on #%s", getattr(channel, "name", channel_id))
 
     # ── Helpers ──
 
@@ -56,12 +95,22 @@ class Admin(commands.Cog):
     async def _pull_and_reload(self):
         """Fetch, check diff, pull, reload changed files. Returns summary or None."""
         # fetch
-        _, _, rc = await self._run_git("fetch")
+        _, fetch_err, rc = await self._run_git("fetch")
         if rc != 0:
+            logger.warning("git fetch failed (rc=%s): %s", rc, fetch_err)
             return None
 
-        # check if behind
-        diff_out, _, _ = await self._run_git("diff", "--name-only", "HEAD", "FETCH_HEAD")
+        # only count commits that are on FETCH_HEAD but not on HEAD
+        count_out, _, rc = await self._run_git(
+            "rev-list", "--count", "HEAD..FETCH_HEAD"
+        )
+        if rc != 0 or not count_out or count_out == "0":
+            return None
+
+        # list files that changed in those upstream commits
+        diff_out, _, _ = await self._run_git(
+            "diff", "--name-only", "HEAD", "FETCH_HEAD"
+        )
         if not diff_out:
             return None
 
@@ -239,12 +288,19 @@ class Admin(commands.Cog):
         if self.git_poll.is_running():
             self.git_poll.cancel()
             self._auto_deploy = False
+            _write_autodeploy_state({"enabled": False})
             await ctx.send("Auto-deploy **OFF**")
         else:
             self._deploy_channel = ctx.channel
             self.git_poll.start()
             self._auto_deploy = True
-            await ctx.send(f"Auto-deploy **ON** (polling every {AUTO_DEPLOY_INTERVAL}s, reporting here)")
+            _write_autodeploy_state({
+                "enabled": True,
+                "channel_id": ctx.channel.id,
+            })
+            await ctx.send(
+                f"Auto-deploy **ON** (polling every {AUTO_DEPLOY_INTERVAL}s, reporting here)"
+            )
 
     @commands.command(name="botstop", aliases=["bstop", "shutdown", "bye"], hidden=True)
     @commands.is_owner()
