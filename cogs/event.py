@@ -105,7 +105,10 @@ class Event(commands.Cog):
         if message.guild is None:
             return
 
-        if "!unbanwords" in message.content or "!banwords" in message.content:
+        prefixes = await self.bot.get_prefix(message)
+        if isinstance(prefixes, str):
+            prefixes = [prefixes]
+        if any(p and message.content.startswith(p) for p in prefixes):
             return
         if guild_id not in words:
             return
