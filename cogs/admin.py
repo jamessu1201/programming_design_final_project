@@ -249,6 +249,7 @@ class Admin(commands.Cog):
     @commands.command(name="botstop", aliases=["bstop", "shutdown", "bye"], hidden=True)
     @commands.is_owner()
     async def botstop(self, ctx):
+        """關閉機器人"""
         logger.info("Goodbye")
         await ctx.send("Goodbye")
         await self.bot.close()
