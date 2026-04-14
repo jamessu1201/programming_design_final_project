@@ -164,7 +164,12 @@ class Other(commands.Cog):
             poll_obj.add_answer(text=opt)
 
         try:
-            await ctx.send(poll=poll_obj)
+            if ctx.interaction is not None:
+                await ctx.interaction.response.defer(ephemeral=True)
+                await ctx.channel.send(poll=poll_obj)
+                await ctx.interaction.followup.send("✅ 投票已建立", ephemeral=True)
+            else:
+                await ctx.send(poll=poll_obj)
         except discord.HTTPException as e:
             logger.error("Poll send failed: %s", e)
             await reply(f"發送投票失敗：{e}")
