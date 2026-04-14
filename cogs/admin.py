@@ -258,13 +258,20 @@ class Admin(commands.Cog):
     @commands.is_owner()
     async def _sync(self, ctx: commands.Context, scope: str = "guild"):
         """同步 slash commands。scope=guild(當前伺服器，立即生效) / global(全域，最多 1 小時)"""
-        if scope == "global":
-            synced = await self.bot.tree.sync()
-            await ctx.send(f"已全域同步 {len(synced)} 個 slash commands（最多 1 小時生效）")
-        else:
-            self.bot.tree.copy_global_to(guild=ctx.guild)
-            synced = await self.bot.tree.sync(guild=ctx.guild)
-            await ctx.send(f"已在本伺服器同步 {len(synced)} 個 slash commands")
+        try:
+            if scope == "global":
+                synced = await self.bot.tree.sync()
+                await ctx.send(f"已全域同步 {len(synced)} 個 slash commands（最多 1 小時生效）")
+            else:
+                self.bot.tree.copy_global_to(guild=ctx.guild)
+                synced = await self.bot.tree.sync(guild=ctx.guild)
+                await ctx.send(f"已在本伺服器同步 {len(synced)} 個 slash commands")
+        except discord.DiscordServerError as e:
+            logger.warning("Discord API unavailable during sync: %s", e)
+            await ctx.send(f"⚠️ Discord API 暫時不穩（{e.status}），等幾分鐘再試一次")
+        except discord.HTTPException as e:
+            logger.error("Sync failed: %s", e)
+            await ctx.send(f"❌ 同步失敗：{e}")
 
 
 async def setup(bot):
