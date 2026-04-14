@@ -4,7 +4,6 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import random
-import datetime
 import json
 from pathlib import Path
 
@@ -12,6 +11,145 @@ logger = logging.getLogger(__name__)
 
 PREFIX_JSON = "json/prefix.json"
 BADWORD_JSON = "json/badword.json"
+
+
+class PollView(discord.ui.View):
+    def __init__(
+        self,
+        question: str,
+        options: list,
+        *,
+        creator_id: int,
+        multiple: bool,
+        change_vote: bool,
+        duration_seconds: int,
+    ):
+        super().__init__(timeout=duration_seconds)
+        self.question = question
+        self.options = options
+        self.creator_id = creator_id
+        self.multiple = multiple
+        self.change_vote = change_vote
+        self.votes: dict = {}  # user_id -> set of option indices
+        self.ended = False
+        self.message = None
+
+        for i, opt in enumerate(options):
+            btn = discord.ui.Button(
+                label=opt[:80],
+                style=discord.ButtonStyle.primary,
+                row=i // 5,
+            )
+            btn.callback = self._make_vote_callback(i)
+            self.add_item(btn)
+
+        end_row = ((len(options) - 1) // 5) + 1
+        end_btn = discord.ui.Button(
+            label="結束投票",
+            style=discord.ButtonStyle.danger,
+            emoji="🛑",
+            row=min(end_row, 4),
+        )
+        end_btn.callback = self._end_callback
+        self.add_item(end_btn)
+
+    def _make_vote_callback(self, idx: int):
+        async def cb(interaction: discord.Interaction):
+            if self.ended:
+                return await interaction.response.send_message(
+                    "投票已結束", ephemeral=True
+                )
+            uid = interaction.user.id
+            current = self.votes.setdefault(uid, set())
+
+            if idx in current:
+                if not self.change_vote:
+                    return await interaction.response.send_message(
+                        "這個投票不允許更改選擇", ephemeral=True
+                    )
+                current.discard(idx)
+                action = f"已取消投給「{self.options[idx]}」"
+            elif self.multiple:
+                current.add(idx)
+                action = f"已加投「{self.options[idx]}」"
+            else:
+                if current and not self.change_vote:
+                    return await interaction.response.send_message(
+                        "這個投票不允許更改選擇", ephemeral=True
+                    )
+                current.clear()
+                current.add(idx)
+                action = f"已投給「{self.options[idx]}」"
+
+            if not current:
+                del self.votes[uid]
+
+            await interaction.response.edit_message(
+                embed=self._build_embed(), view=self
+            )
+            await interaction.followup.send(action, ephemeral=True)
+
+        return cb
+
+    async def _end_callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.creator_id:
+            return await interaction.response.send_message(
+                "只有發起人可以結束投票", ephemeral=True
+            )
+        self.ended = True
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(
+            embed=self._build_embed(), view=self
+        )
+        self.stop()
+
+    def _tally(self):
+        counts = [0] * len(self.options)
+        for s in self.votes.values():
+            for i in s:
+                counts[i] += 1
+        return counts
+
+    def _build_embed(self) -> discord.Embed:
+        counts = self._tally()
+        voters = len(self.votes)
+        total_votes = sum(counts)
+        denom = total_votes if self.multiple else voters
+        lines = []
+        for opt, c in zip(self.options, counts):
+            pct = (c / denom * 100) if denom else 0
+            filled = int(round(pct / 10))
+            bar = "█" * filled + "░" * (10 - filled)
+            lines.append(f"**{opt}**\n`{bar}` {c} 票 ({pct:.0f}%)")
+
+        title = ("🔒 " if self.ended else "📊 ") + self.question
+        desc = "\n\n".join(lines)
+        footer = f"投票人數 **{voters}**"
+        if self.multiple and total_votes != voters:
+            footer += f" · 總票數 **{total_votes}**"
+        footer += f" · {'允許改投' if self.change_vote else '不可改投'}"
+        if self.multiple:
+            footer += " · 可多選"
+        if self.ended:
+            footer += " · 已結束"
+        desc += "\n\n━━━━━━\n" + footer
+
+        return discord.Embed(
+            title=title,
+            description=desc,
+            color=discord.Color.dark_grey() if self.ended else discord.Color.blurple(),
+        )
+
+    async def on_timeout(self):
+        self.ended = True
+        for child in self.children:
+            child.disabled = True
+        if self.message is not None:
+            try:
+                await self.message.edit(embed=self._build_embed(), view=self)
+            except discord.HTTPException:
+                pass
 
 
 class Other(commands.Cog):
@@ -116,8 +254,9 @@ class Other(commands.Cog):
         option8="選項 8（選填）",
         option9="選項 9（選填）",
         option10="選項 10（選填）",
-        hours="持續時間（小時，1–768，預設 24）",
+        hours="持續時間（小時，1–720，預設 24）",
         multiple="能不能多選（預設否）",
+        change_vote="能不能改投（預設可以）",
     )
     async def poll(
         self,
@@ -135,8 +274,12 @@ class Other(commands.Cog):
         option10: str = None,
         hours: int = 24,
         multiple: bool = False,
+        change_vote: bool = True,
     ):
-        """發起投票（用 /poll 會有欄位提示）"""
+        """發起投票（用 /poll 會有欄位提示）
+
+        按按鈕即可投票。發起人可以隨時按「結束投票」結算。
+        """
         options = [
             o for o in (
                 option1, option2, option3, option4, option5,
@@ -147,29 +290,33 @@ class Other(commands.Cog):
         async def reply(msg):
             await ctx.send(msg, ephemeral=True)
 
-        if len(question) > 300:
-            return await reply("問題最長 300 字。")
-        if not 1 <= hours <= 768:
-            return await reply("持續時間必須介於 1–768 小時。")
+        if len(question) > 256:
+            return await reply("問題最長 256 字。")
+        if not 1 <= hours <= 720:
+            return await reply("持續時間必須介於 1–720 小時。")
         for opt in options:
-            if len(opt) > 55:
-                return await reply(f"選項「{opt}」超過 55 字上限。")
+            if len(opt) > 80:
+                return await reply(f"選項「{opt}」超過 80 字上限。")
 
-        poll_obj = discord.Poll(
+        view = PollView(
             question=question,
-            duration=datetime.timedelta(hours=hours),
+            options=options,
+            creator_id=ctx.author.id,
             multiple=multiple,
+            change_vote=change_vote,
+            duration_seconds=hours * 3600,
         )
-        for opt in options:
-            poll_obj.add_answer(text=opt)
+        embed = view._build_embed()
 
         try:
             if ctx.interaction is not None:
                 await ctx.interaction.response.defer(ephemeral=True)
-                await ctx.channel.send(poll=poll_obj)
+                msg = await ctx.channel.send(embed=embed, view=view)
+                view.message = msg
                 await ctx.interaction.followup.send("✅ 投票已建立", ephemeral=True)
             else:
-                await ctx.send(poll=poll_obj)
+                msg = await ctx.send(embed=embed, view=view)
+                view.message = msg
         except discord.HTTPException as e:
             logger.error("Poll send failed: %s", e)
             await reply(f"發送投票失敗：{e}")
