@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 import logging
+import re
 import discord
 from discord.ext import commands
-import asyncio
 import random
 import datetime
 import json
@@ -103,40 +103,64 @@ class Other(commands.Cog):
         )
 
     @commands.command(name="poll")
-    async def poll(self, ctx: commands.Context, topic, c1, c2, duration):
-        """投票(主題 選項一 選項二 持續時間)"""
-        emb = discord.Embed(
-            title=topic,
-            description=f":one:{c1}\n\n:two:{c2}",
-            timestamp=datetime.datetime.now(datetime.timezone.utc),
-        )
-        emb.set_footer(text=f"由{ctx.author.name}發起投票")
-        msg = await ctx.channel.send(embed=emb)
-        await msg.add_reaction("1️⃣")
-        await msg.add_reaction("2️⃣")
-        await asyncio.sleep(int(duration))
+    @commands.guild_only()
+    async def poll(self, ctx: commands.Context, *, raw: str = None):
+        """投票：!poll 問題 | 選項1 | 選項2 | ... [| 6h] [| multi]
 
-        newmessage = await ctx.fetch_message(msg.id)
-        one_count = 0
-        two_count = 0
-        for reaction in newmessage.reactions:
-            if str(reaction.emoji) == "1️⃣":
-                one_count = reaction.count - 1
-            elif str(reaction.emoji) == "2️⃣":
-                two_count = reaction.count - 1
+        用 | 或 ｜ 分隔問題和選項，最少 2 個、最多 10 個選項。
+        結尾可加 `6h` 指定持續時間（預設 24 小時，最長 768 小時）。
+        結尾可加 `multi` 或 `多選` 允許一人勾多個選項。
+        使用 Discord 原生 Poll，會自動到期並顯示結果。
+        """
+        if not raw:
+            return await ctx.send(
+                "用法: `!poll 問題 | 選項1 | 選項2 | ... [| 6h] [| multi]`"
+            )
 
-        if one_count > two_count:
-            result = c1
-        elif two_count > one_count:
-            result = c2
-        else:
-            result = "平手"
-        emb = discord.Embed(
-            title=topic,
-            description=f"投票結果:{result}",
-            timestamp=datetime.datetime.now(datetime.timezone.utc),
+        parts = [p.strip() for p in raw.replace("｜", "|").split("|") if p.strip()]
+
+        hours = 24
+        multi = False
+        while parts:
+            tail = parts[-1].lower()
+            m = re.fullmatch(r"(\d+)\s*h(?:ours?)?", tail)
+            if m:
+                hours = int(m.group(1))
+                parts.pop()
+                continue
+            if tail in ("multi", "multiple", "多選"):
+                multi = True
+                parts.pop()
+                continue
+            break
+
+        if len(parts) < 3:
+            return await ctx.send("至少需要 1 個問題和 2 個選項。")
+
+        question, *options = parts
+        if len(options) > 10:
+            return await ctx.send("最多 10 個選項。")
+        if not 1 <= hours <= 768:
+            return await ctx.send("持續時間必須介於 1–768 小時。")
+        if len(question) > 300:
+            return await ctx.send("問題最長 300 字。")
+        for opt in options:
+            if len(opt) > 55:
+                return await ctx.send(f"選項「{opt}」超過 55 字上限。")
+
+        poll = discord.Poll(
+            question=question,
+            duration=datetime.timedelta(hours=hours),
+            multiple=multi,
         )
-        await newmessage.edit(embed=emb)
+        for opt in options:
+            poll.add_answer(text=opt)
+
+        try:
+            await ctx.send(poll=poll)
+        except discord.HTTPException as e:
+            logger.error("Poll send failed: %s", e)
+            await ctx.send(f"發送投票失敗：{e}")
 
     @commands.command(name="prefix")
     @commands.guild_only()
