@@ -116,25 +116,55 @@ class Api(commands.Cog):
         await ctx.send(embed=embed)
 
     @commands.command(name='picture')
-    async def picture(self,ctx:commands.Context,query:str=None):
-        """隨機找圖片素材用"""
-        if(query==None):
+    async def picture(self, ctx: commands.Context, *, query: str = None):
+        """隨機找圖片素材用（Unsplash）"""
+        if query is None:
             await ctx.send("請輸入要搜尋的東西")
             return
-        
-        access_key=os.environ.get('picture_access_key')
-        if(access_key==None):
+
+        access_key = os.environ.get('picture_access_key')
+        if access_key is None:
             try:
-                with open('api_key/access_key.txt','r') as r:
-                    access_key=r.read()
+                with open('api_key/access_key.txt', 'r') as r:
+                    access_key = r.read().strip()
             except FileNotFoundError:
                 await ctx.send("no picture_access_key")
                 return
 
         url = 'https://api.unsplash.com/search/photos'
-        querystring = {'query': query, 'client_id': access_key}
-        response = requests.get(url, params=querystring, allow_redirects=True).json()
-        logger.debug("API response received")
+        params = {'query': query, 'client_id': access_key, 'per_page': 30}
+        try:
+            resp = requests.get(url, params=params, timeout=10)
+        except requests.RequestException as e:
+            logger.error("Unsplash request failed: %s", e)
+            return await ctx.send(f"請求失敗：{e}")
+
+        if resp.status_code == 401:
+            return await ctx.send("Unsplash access key 無效或過期")
+        if resp.status_code == 403:
+            return await ctx.send("Unsplash API 用量已達上限，等一下再試")
+        if resp.status_code != 200:
+            logger.error("Unsplash %s: %s", resp.status_code, resp.text[:200])
+            return await ctx.send(f"Unsplash 回傳錯誤（{resp.status_code}）")
+
+        data = resp.json()
+        results = data.get('results', [])
+        if not results:
+            return await ctx.send(f"找不到「{query}」的圖片")
+
+        pick = random.choice(results)
+        image_url = pick['urls'].get('regular') or pick['urls']['full']
+        html_link = pick.get('links', {}).get('html')
+        photographer = pick.get('user', {}).get('name', 'Unknown')
+
+        embed = discord.Embed(
+            title=query,
+            url=html_link,
+            description=f"Photo by **{photographer}** on Unsplash",
+            color=discord.Color.dark_embed(),
+        )
+        embed.set_image(url=image_url)
+        await ctx.send(embed=embed)
 
     @commands.command(hidden=True)
     async def ccu_csie_camp(self,ctx:commands.Context,req:str=None):
