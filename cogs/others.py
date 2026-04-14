@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import logging
-import re
 import discord
+from discord import app_commands
 from discord.ext import commands
 import random
 import datetime
@@ -102,65 +102,72 @@ class Other(commands.Cog):
             type=discord.ChannelType.public_thread,
         )
 
-    @commands.command(name="poll")
+    @commands.hybrid_command(name="poll")
     @commands.guild_only()
-    async def poll(self, ctx: commands.Context, *, raw: str = None):
-        """投票：!poll 問題 | 選項1 | 選項2 | ... [| 6h] [| multi]
+    @app_commands.describe(
+        question="問題（要投什麼票？）",
+        option1="選項 1",
+        option2="選項 2",
+        option3="選項 3（選填）",
+        option4="選項 4（選填）",
+        option5="選項 5（選填）",
+        option6="選項 6（選填）",
+        option7="選項 7（選填）",
+        option8="選項 8（選填）",
+        option9="選項 9（選填）",
+        option10="選項 10（選填）",
+        hours="持續時間（小時，1–768，預設 24）",
+        multiple="能不能多選（預設否）",
+    )
+    async def poll(
+        self,
+        ctx: commands.Context,
+        question: str,
+        option1: str,
+        option2: str,
+        option3: str = None,
+        option4: str = None,
+        option5: str = None,
+        option6: str = None,
+        option7: str = None,
+        option8: str = None,
+        option9: str = None,
+        option10: str = None,
+        hours: int = 24,
+        multiple: bool = False,
+    ):
+        """發起投票（用 /poll 會有欄位提示）"""
+        options = [
+            o for o in (
+                option1, option2, option3, option4, option5,
+                option6, option7, option8, option9, option10,
+            ) if o
+        ]
 
-        用 | 或 ｜ 分隔問題和選項，最少 2 個、最多 10 個選項。
-        結尾可加 `6h` 指定持續時間（預設 24 小時，最長 768 小時）。
-        結尾可加 `multi` 或 `多選` 允許一人勾多個選項。
-        使用 Discord 原生 Poll，會自動到期並顯示結果。
-        """
-        if not raw:
-            return await ctx.send(
-                "用法: `!poll 問題 | 選項1 | 選項2 | ... [| 6h] [| multi]`"
-            )
+        async def reply(msg):
+            await ctx.send(msg, ephemeral=True)
 
-        parts = [p.strip() for p in raw.replace("｜", "|").split("|") if p.strip()]
-
-        hours = 24
-        multi = False
-        while parts:
-            tail = parts[-1].lower()
-            m = re.fullmatch(r"(\d+)\s*h(?:ours?)?", tail)
-            if m:
-                hours = int(m.group(1))
-                parts.pop()
-                continue
-            if tail in ("multi", "multiple", "多選"):
-                multi = True
-                parts.pop()
-                continue
-            break
-
-        if len(parts) < 3:
-            return await ctx.send("至少需要 1 個問題和 2 個選項。")
-
-        question, *options = parts
-        if len(options) > 10:
-            return await ctx.send("最多 10 個選項。")
-        if not 1 <= hours <= 768:
-            return await ctx.send("持續時間必須介於 1–768 小時。")
         if len(question) > 300:
-            return await ctx.send("問題最長 300 字。")
+            return await reply("問題最長 300 字。")
+        if not 1 <= hours <= 768:
+            return await reply("持續時間必須介於 1–768 小時。")
         for opt in options:
             if len(opt) > 55:
-                return await ctx.send(f"選項「{opt}」超過 55 字上限。")
+                return await reply(f"選項「{opt}」超過 55 字上限。")
 
-        poll = discord.Poll(
+        poll_obj = discord.Poll(
             question=question,
             duration=datetime.timedelta(hours=hours),
-            multiple=multi,
+            multiple=multiple,
         )
         for opt in options:
-            poll.add_answer(text=opt)
+            poll_obj.add_answer(text=opt)
 
         try:
-            await ctx.send(poll=poll)
+            await ctx.send(poll=poll_obj)
         except discord.HTTPException as e:
             logger.error("Poll send failed: %s", e)
-            await ctx.send(f"發送投票失敗：{e}")
+            await reply(f"發送投票失敗：{e}")
 
     @commands.command(name="prefix")
     @commands.guild_only()

@@ -254,6 +254,18 @@ class Admin(commands.Cog):
         await ctx.send("Goodbye")
         await self.bot.close()
 
+    @commands.command(name="sync", hidden=True)
+    @commands.is_owner()
+    async def _sync(self, ctx: commands.Context, scope: str = "guild"):
+        """同步 slash commands。scope=guild(當前伺服器，立即生效) / global(全域，最多 1 小時)"""
+        if scope == "global":
+            synced = await self.bot.tree.sync()
+            await ctx.send(f"已全域同步 {len(synced)} 個 slash commands（最多 1 小時生效）")
+        else:
+            self.bot.tree.copy_global_to(guild=ctx.guild)
+            synced = await self.bot.tree.sync(guild=ctx.guild)
+            await ctx.send(f"已在本伺服器同步 {len(synced)} 個 slash commands")
+
 
 async def setup(bot):
     await bot.add_cog(Admin(bot))
