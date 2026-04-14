@@ -26,11 +26,31 @@ class CustomHelp(commands.HelpCommand):
     def _short_doc(command: commands.Command) -> str:
         return command.short_doc or command.help or "—"
 
+    @staticmethod
+    def _chunk_lines(lines, limit=4000):
+        """Split a list of lines into chunks whose joined length stays under limit."""
+        chunks = []
+        current = []
+        current_len = 0
+        for line in lines:
+            add = len(line) + 1
+            if current and current_len + add > limit:
+                chunks.append("\n".join(current))
+                current = [line]
+                current_len = len(line)
+            else:
+                current.append(line)
+                current_len += add
+        if current:
+            chunks.append("\n".join(current))
+        return chunks
+
     async def send_bot_help(self, mapping):
         ctx = self.context
         is_owner = self._is_owner(ctx)
+        dest = self.get_destination()
 
-        embed = discord.Embed(
+        intro = discord.Embed(
             title="📚 指令列表",
             description=(
                 f"輸入 `{ctx.clean_prefix}help <指令>` 查看詳細用法\n"
@@ -38,6 +58,7 @@ class CustomHelp(commands.HelpCommand):
             ),
             color=discord.Color.blurple(),
         )
+        await dest.send(embed=intro)
 
         ordered_cogs = sorted(
             (c for c in mapping if c is not None),
@@ -48,46 +69,56 @@ class CustomHelp(commands.HelpCommand):
             visible = [c for c in mapping[cog] if not c.hidden]
             if not visible:
                 continue
-            lines = []
-            for c in sorted(visible, key=lambda x: x.name):
-                sig = self.get_command_signature(c)
-                lines.append(f"`{sig}` — {self._short_doc(c)}")
-            embed.add_field(
-                name=cog.qualified_name,
-                value="\n".join(lines),
-                inline=False,
-            )
+            lines = [
+                f"`{self.get_command_signature(c)}` — {self._short_doc(c)}"
+                for c in sorted(visible, key=lambda x: x.name)
+            ]
+            for i, chunk in enumerate(self._chunk_lines(lines)):
+                title = cog.qualified_name + (f" ({i + 1})" if i else "")
+                await dest.send(embed=discord.Embed(
+                    title=title,
+                    description=chunk,
+                    color=discord.Color.blurple(),
+                ))
 
-        # Cogless commands
         none_cmds = [c for c in mapping.get(None, []) if not c.hidden]
         if none_cmds:
             lines = [
                 f"`{self.get_command_signature(c)}` — {self._short_doc(c)}"
                 for c in sorted(none_cmds, key=lambda x: x.name)
             ]
-            embed.add_field(name="其他", value="\n".join(lines), inline=False)
+            for i, chunk in enumerate(self._chunk_lines(lines)):
+                title = "其他" + (f" ({i + 1})" if i else "")
+                await dest.send(embed=discord.Embed(
+                    title=title,
+                    description=chunk,
+                    color=discord.Color.blurple(),
+                ))
 
         if is_owner:
             admin_lines = []
             for cog in ordered_cogs:
-                hidden = [c for c in mapping[cog] if c.hidden]
-                for c in sorted(hidden, key=lambda x: x.name):
-                    sig = self.get_command_signature(c)
-                    admin_lines.append(f"`{sig}` — {self._short_doc(c)}")
+                for c in sorted(
+                    (x for x in mapping[cog] if x.hidden),
+                    key=lambda x: x.name,
+                ):
+                    admin_lines.append(
+                        f"`{self.get_command_signature(c)}` — {self._short_doc(c)}"
+                    )
             for c in sorted(
                 (x for x in mapping.get(None, []) if x.hidden),
                 key=lambda x: x.name,
             ):
-                sig = self.get_command_signature(c)
-                admin_lines.append(f"`{sig}` — {self._short_doc(c)}")
-            if admin_lines:
-                embed.add_field(
-                    name="🛠 Admin（僅 Owner）",
-                    value="\n".join(admin_lines),
-                    inline=False,
+                admin_lines.append(
+                    f"`{self.get_command_signature(c)}` — {self._short_doc(c)}"
                 )
-
-        await self.get_destination().send(embed=embed)
+            for i, chunk in enumerate(self._chunk_lines(admin_lines)):
+                title = "🛠 Admin（僅 Owner）" + (f" ({i + 1})" if i else "")
+                await dest.send(embed=discord.Embed(
+                    title=title,
+                    description=chunk,
+                    color=discord.Color.dark_gold(),
+                ))
 
     async def send_command_help(self, command: commands.Command):
         if command.hidden and not self._is_owner(self.context):
