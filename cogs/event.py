@@ -118,8 +118,6 @@ class Event(commands.Cog):
             if (regex_true.search(message.content) is not None
                     and regex_false.search(message.content) is None) or word in message.content:
                 profane = True
-            if message.content in word:
-                profane = True
             if profane:
                 await message.delete()
                 await message.channel.send("哦?你說了不該說的話了喔!")
