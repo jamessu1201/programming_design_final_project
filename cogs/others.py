@@ -340,16 +340,23 @@ class Other(commands.Cog):
     @commands.command(name="prefix")
     @commands.guild_only()
     async def setprefix(self, ctx, *, prefixes=""):
-        """設定前綴"""
+        """設定指令前綴（1–5 字元，不可含空白）"""
+        prefixes = prefixes.strip()
         if prefixes == "":
-            await ctx.send("please enter the prefix.")
+            await ctx.send("請輸入要設定的 prefix。")
+            return
+        if len(prefixes) > 5:
+            await ctx.send("prefix 最長 5 個字元。")
+            return
+        if any(c.isspace() for c in prefixes):
+            await ctx.send("prefix 不可包含空白字元。")
             return
         with open(PREFIX_JSON, "r", encoding="utf-8") as f:
             custom_prefixes = json.load(f)
         custom_prefixes[str(ctx.guild.id)] = prefixes
         with open(PREFIX_JSON, "w", encoding="utf-8") as r:
             json.dump(custom_prefixes, r)
-        await ctx.send("Prefix was set to {} ".format(prefixes))
+        await ctx.send(f"Prefix 已設為 `{prefixes}`")
 
     @commands.command(name="draw")
     async def draw(self, ctx: commands.Context, number: int, channel: discord.VoiceChannel = None):
