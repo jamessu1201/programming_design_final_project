@@ -49,6 +49,7 @@ def create_app(bot) -> FastAPI:
     app.add_middleware(SlowAPIMiddleware)
 
     templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
+    templates.env.auto_reload = True
     templates.env.globals["csrf_for"] = lambda session: security.generate_csrf(
         session, secret
     )

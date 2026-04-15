@@ -127,6 +127,7 @@ class Admin(commands.Cog):
         ext_to_reload = []
         cogs_to_reload = []
         config_changed = False
+        dashboard_changed = False
 
         for f in changed_files:
             f = f.strip()
@@ -135,10 +136,21 @@ class Admin(commands.Cog):
             elif f.startswith("cogs/") and f.endswith(".py"):
                 cog_name = f.replace("cogs/", "").replace(".py", "")
                 cogs_to_reload.append(cog_name)
+            elif f.startswith("dashboard/"):
+                dashboard_changed = True
             elif f.endswith(".py") and "/" not in f:
                 mod_name = f.replace(".py", "")
                 if mod_name in EXTERNAL_MODULES:
                     ext_to_reload.append(mod_name)
+
+        # If anything under dashboard/ changed, evict its module cache and
+        # reload cogs.dashboard so create_app() picks up new routes/templates.
+        if dashboard_changed:
+            for name in list(sys.modules):
+                if name == "dashboard" or name.startswith("dashboard."):
+                    del sys.modules[name]
+            if "dashboard" not in cogs_to_reload:
+                cogs_to_reload.append("dashboard")
 
         # reload config
         if config_changed:
