@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
 
 import uvicorn
 from discord.ext import commands
-
-from dashboard.app import create_app
 
 logger = logging.getLogger(__name__)
 
@@ -22,13 +21,23 @@ class Dashboard(commands.Cog):
         self._task: asyncio.Task | None = None
 
     async def cog_load(self):
+        # Force re-import of dashboard.* so reloads pick up new routes /
+        # templates without needing a full bot restart.
+        for name in list(sys.modules):
+            if name == "dashboard" or name.startswith("dashboard."):
+                del sys.modules[name]
+
         try:
+            from dashboard.app import create_app
             app = create_app(self.bot)
         except FileNotFoundError as e:
             logger.warning("Dashboard not started: %s", e)
             return
         except ValueError as e:
             logger.error("Dashboard config invalid: %s", e)
+            return
+        except Exception as e:
+            logger.exception("Dashboard create_app failed: %s", e)
             return
 
         cfg = app.state.oauth_config
