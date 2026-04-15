@@ -16,6 +16,15 @@ router = APIRouter()
 
 SCHEDULES_PATH = Path("json/scheduled_messages.json")
 
+ENTRY_TYPES = ("text", "leetcode_daily", "happy_birthday", "lol_reminder", "contest_check")
+TYPE_LABELS = {
+    "text": "純文字",
+    "leetcode_daily": "LeetCode 每日題",
+    "happy_birthday": "生日提醒",
+    "lol_reminder": "LOL 提醒",
+    "contest_check": "LeetCode 比賽偵測",
+}
+
 
 def _load() -> dict:
     if not SCHEDULES_PATH.exists():
@@ -56,10 +65,14 @@ async def show(
     bot = request.app.state.bot
     guild = bot.get_guild(guild_id)
     entries = _load().get(str(guild_id), [])
-    enriched = [
-        {**e, "channel_label": _channel_name(bot, guild_id, int(e["channel_id"]))}
-        for e in entries
-    ]
+    enriched = []
+    for e in entries:
+        enriched.append({
+            **e,
+            "type": e.get("type", "text"),
+            "type_label": TYPE_LABELS.get(e.get("type", "text"), e.get("type", "text")),
+            "channel_label": _channel_name(bot, guild_id, int(e["channel_id"])),
+        })
     return request.app.state.templates.TemplateResponse(
         request,
         "scheduled.html",
@@ -71,6 +84,7 @@ async def show(
                 "icon": str(guild.icon.url) if guild and guild.icon else None,
             },
             "entries": enriched,
+            "type_labels": TYPE_LABELS,
         },
     )
 
@@ -80,13 +94,17 @@ async def add(
     request: Request,
     guild_id: int,
     channel_id: str = Form(...),
-    message: str = Form(...),
+    message: str = Form(""),
     cron: str = Form(...),
+    type: str = Form("text"),
     enabled: str = Form("on"),
     session: security.Session = Depends(security.require_csrf),
 ):
     if not session.is_owner and guild_id not in session.allowed_guilds:
         raise HTTPException(403, "no access to this guild")
+
+    if type not in ENTRY_TYPES:
+        raise HTTPException(400, f"未知類型: {type}")
 
     cron = cron.strip()
     if not croniter.is_valid(cron):
@@ -101,17 +119,19 @@ async def add(
     if guild is None or guild.get_channel(cid) is None:
         raise HTTPException(400, f"找不到頻道 {cid}")
 
-    message = message.strip()
-    if not message:
-        raise HTTPException(400, "訊息不可為空")
-    if len(message) > 1900:
-        raise HTTPException(400, "訊息最長 1900 字")
+    message = (message or "").strip()
+    if type == "text":
+        if not message:
+            raise HTTPException(400, "純文字類型必須填訊息")
+        if len(message) > 1900:
+            raise HTTPException(400, "訊息最長 1900 字")
 
     data = _load()
     bucket = data.setdefault(str(guild_id), [])
     new_entry = {
         "id": uuid.uuid4().hex[:12],
         "channel_id": str(cid),
+        "type": type,
         "message": message,
         "cron": cron,
         "enabled": (enabled == "on"),
