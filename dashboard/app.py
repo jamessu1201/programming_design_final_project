@@ -16,7 +16,17 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from . import security
 from .limits import limiter
-from .routes import auth, autodeploy, autoreplies, banwords, guilds, maintenance, prefix
+from .routes import (
+    auth,
+    auto_tasks,
+    autodeploy,
+    autoreplies,
+    banwords,
+    guilds,
+    maintenance,
+    prefix,
+    scheduled,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +62,9 @@ def create_app(bot) -> FastAPI:
     app.include_router(banwords.router)
     app.include_router(autoreplies.router)
     app.include_router(prefix.router)
+    app.include_router(scheduled.router)
     app.include_router(autodeploy.router)
+    app.include_router(auto_tasks.router)
     app.include_router(maintenance.router)
 
     @app.exception_handler(401)

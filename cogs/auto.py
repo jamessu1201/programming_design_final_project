@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
+import json
 import logging
 import random
 import datetime
+from pathlib import Path
 
 import discord
 from discord.ext import commands, tasks
@@ -16,6 +18,26 @@ logger = logging.getLogger(__name__)
 UTC_PLUS_8 = datetime.timezone(datetime.timedelta(hours=8))
 BIRTHDAY_TIME = datetime.time(hour=0, minute=0, tzinfo=UTC_PLUS_8)
 LEETCODE_TIME = datetime.time(hour=8, minute=5, tzinfo=UTC_PLUS_8)
+
+AUTO_TASKS_PATH = Path("json/auto_tasks.json")
+AUTO_TASK_NAMES = ("leetcode", "happy_birthday", "lol_reminder", "contest_check")
+
+
+def _load_auto_task_state() -> dict:
+    if not AUTO_TASKS_PATH.exists():
+        return {n: True for n in AUTO_TASK_NAMES}
+    try:
+        with AUTO_TASKS_PATH.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {n: True for n in AUTO_TASK_NAMES}
+    return {n: bool(data.get(n, True)) for n in AUTO_TASK_NAMES}
+
+
+def _save_auto_task_state(state: dict) -> None:
+    AUTO_TASKS_PATH.parent.mkdir(exist_ok=True)
+    with AUTO_TASKS_PATH.open("w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False)
 
 
 def _chunk_text(text, limit):
@@ -39,10 +61,24 @@ class Auto(commands.Cog):
         self.cfg = bot.config
         self._reminded_contests = set()
         self._threaded_contests = set()
+        self._task_state = _load_auto_task_state()
         self.happy_birthday.start()
         self.leetcode.start()
         self.lol_reminder.start()
         self.contest_check.start()
+
+    def is_task_enabled(self, name: str) -> bool:
+        return self._task_state.get(name, True)
+
+    def set_task_enabled(self, name: str, value: bool) -> None:
+        if name not in AUTO_TASK_NAMES:
+            raise ValueError(f"unknown task: {name}")
+        self._task_state[name] = bool(value)
+        _save_auto_task_state(self._task_state)
+
+    def reload_state_now(self) -> dict:
+        self._task_state = _load_auto_task_state()
+        return dict(self._task_state)
 
     def cog_unload(self):
         self.happy_birthday.cancel()
@@ -54,6 +90,8 @@ class Auto(commands.Cog):
 
     @tasks.loop(minutes=5)
     async def contest_check(self):
+        if not self.is_task_enabled("contest_check"):
+            return
         now = datetime.datetime.now(datetime.timezone.utc)
         contests = get_upcoming_contests()
         channel = await self.bot.fetch_channel(self.cfg["channels"]["leetcode"])
@@ -119,6 +157,9 @@ class Auto(commands.Cog):
 
     @tasks.loop(time=LEETCODE_TIME)
     async def leetcode(self):
+        if not self.is_task_enabled("leetcode"):
+            logger.info("leetcode skipped (disabled)")
+            return
         logger.info("leetcode time")
         channel = await self.bot.fetch_channel(self.cfg["channels"]["leetcode"])
         result = leetcode_main()
@@ -145,6 +186,8 @@ class Auto(commands.Cog):
 
     @tasks.loop(time=BIRTHDAY_TIME)
     async def happy_birthday(self):
+        if not self.is_task_enabled("happy_birthday"):
+            return
         channel = await self.bot.fetch_channel(self.cfg["channels"]["birthday"])
         for role_id in self.cfg["roles"]["birthday"]:
             await channel.send(f"<@&{role_id}>")
@@ -159,6 +202,8 @@ class Auto(commands.Cog):
 
     @tasks.loop(hours=24)
     async def lol_reminder(self):
+        if not self.is_task_enabled("lol_reminder"):
+            return
         channel = await self.bot.fetch_channel(self.cfg["channels"]["lol"])
         await channel.send(f'<@&{self.cfg["roles"]["lol"]}> 一把')
 
