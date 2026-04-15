@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}自動回應 · {{ guild.name }}{% endblock %}
+{% block content %}
+<section>
+  <div class="guild-header">
+    {% if guild.icon %}<img src="{{ guild.icon }}" alt="">{% endif %}
+    <h1>💬 自動回應 — {{ guild.name }}</h1>
+  </div>
+  <p><a href="/guilds/{{ guild.id }}">← 回 {{ guild.name }}</a></p>
+
+  <div class="card">
+    <h2>本伺服器開關</h2>
+    <p>目前狀態：<strong>{{ '開啟' if enabled else '關閉' }}</strong></p>
+    <form method="post" action="/guilds/{{ guild.id }}/autoreplies/toggle" class="inline-form">
+      <input type="hidden" name="_csrf" value="{{ csrf_for(session) }}">
+      <button type="submit" class="btn">切換</button>
+    </form>
+  </div>
+
+  <h2>關鍵字觸發列表（全域）</h2>
+  {% if not session.is_owner %}<p class="muted">只有 owner 可以編輯關鍵字 / URL。</p>{% endif %}
+
+  {% if session.is_owner %}
+  <div class="card">
+    <h3>新增一組</h3>
+    <form method="post" action="/autoreplies/add" class="stacked-form">
+      <input type="hidden" name="_csrf" value="{{ csrf_for(session) }}">
+      <input type="hidden" name="redirect_to" value="/guilds/{{ guild.id }}/autoreplies">
+      <label>觸發關鍵字（用逗號分隔）<input type="text" name="triggers" required placeholder="笑死, 哈哈"></label>
+      <label>圖片 / 連結（每行一個）<textarea name="urls" rows="3" required placeholder="https://..."></textarea></label>
+      <button type="submit" class="btn btn-primary">新增</button>
+    </form>
+  </div>
+  {% endif %}
+
+  {% if replies %}
+  <table class="data">
+    <thead><tr><th>#</th><th>觸發詞</th><th>URL 數</th>{% if session.is_owner %}<th></th>{% endif %}</tr></thead>
+    <tbody>
+      {% for r in replies %}
+      <tr>
+        <td>{{ loop.index0 }}</td>
+        <td>{{ r.triggers | join('、') }}</td>
+        <td>{{ r.urls | length }}</td>
+        {% if session.is_owner %}
+        <td>
+          <form method="post" action="/autoreplies/delete" class="inline-form" onsubmit="return confirm('刪除「{{ r.triggers | join('、') }}」?')">
+            <input type="hidden" name="_csrf" value="{{ csrf_for(session) }}">
+            <input type="hidden" name="redirect_to" value="/guilds/{{ guild.id }}/autoreplies">
+            <input type="hidden" name="index" value="{{ loop.index0 }}">
+            <button type="submit" class="btn btn-danger">刪除</button>
+          </form>
+        </td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">還沒有任何自動回應規則。</p>
+  {% endif %}
+</section>
+{% endblock %}

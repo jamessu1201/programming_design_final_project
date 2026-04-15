@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title%}維運 · Bot Dashboard{% endblock %}
+{% block content %}
+<section>
+  <h1>🛠 維運面板</h1>
+  <p><a href="/">← 回首頁</a></p>
+
+  <div class="card">
+    <h2>狀態</h2>
+    <ul>
+      <li>Uptime: <strong>{{ uptime_seconds // 3600 }}h {{ (uptime_seconds % 3600) // 60 }}m</strong></li>
+      <li>Guild 數: <strong>{{ guild_count }}</strong></li>
+      <li>已載入 cogs ({{ loaded_cogs | length }}): <code>{{ loaded_cogs | join(', ') }}</code></li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>動作</h2>
+    <form method="post" action="/maintenance/sync" class="inline-form" onsubmit="return confirm('全域同步 slash commands？最多 1 小時生效。')">
+      <input type="hidden" name="_csrf" value="{{ csrf_for(session) }}">
+      <button type="submit" class="btn">Sync slash commands</button>
+    </form>
+    <form method="post" action="/maintenance/reload" class="inline-form" onsubmit="return confirm('重新載入所有 cog？')">
+      <input type="hidden" name="_csrf" value="{{ csrf_for(session) }}">
+      <button type="submit" class="btn">Reload all cogs</button>
+    </form>
+    <form method="post" action="/maintenance/deploy" class="inline-form" onsubmit="return confirm('git pull 最新版本並重新載入？')">
+      <input type="hidden" name="_csrf" value="{{ csrf_for(session) }}">
+      <button type="submit" class="btn btn-primary">Git pull + reload</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Auto-deploy</h2>
+    {% if autodeploy.get('enabled') %}
+      <p>🟢 已開啟，回報到
+        {% if autodeploy_channel %}<strong>#{{ autodeploy_channel.name }}</strong>（{{ autodeploy_channel.guild }}）
+        {% else %}頻道 {{ autodeploy.channel_id }}{% endif %}
+      </p>
+      <form method="post" action="/maintenance/autodeploy/off" class="inline-form" onsubmit="return confirm('關掉 auto-deploy？')">
+        <input type="hidden" name="_csrf" value="{{ csrf_for(session) }}">
+        <button type="submit" class="btn btn-danger">關閉</button>
+      </form>
+    {% else %}
+      <p>🔴 已關閉</p>
+      <form method="post" action="/maintenance/autodeploy/on" class="inline-form">
+        <input type="hidden" name="_csrf" value="{{ csrf_for(session) }}">
+        <input type="text" name="channel_id" placeholder="回報頻道 ID" pattern="\d+" required>
+        <button type="submit" class="btn btn-primary">開啟</button>
+      </form>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

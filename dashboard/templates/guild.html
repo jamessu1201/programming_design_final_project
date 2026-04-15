@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}{{ guild.name }} · Bot Dashboard{% endblock %}
+{% block content %}
+<section>
+  <div class="guild-header">
+    {% if guild.icon %}<img src="{{ guild.icon }}" alt="">{% endif %}
+    <div>
+      <h1>{{ guild.name }}</h1>
+      <small>{{ guild.member_count }} 成員 · ID {{ guild.id }}</small>
+    </div>
+  </div>
+
+  <nav class="tabs">
+    <a href="/guilds/{{ guild.id }}/banwords">🚫 Ban 詞</a>
+    <a href="/guilds/{{ guild.id }}/autoreplies">💬 自動回應</a>
+    <a href="/guilds/{{ guild.id }}/prefix">⚙ Prefix</a>
+    <a href="/">← 回伺服器列表</a>
+  </nav>
+</section>
+{% endblock %}

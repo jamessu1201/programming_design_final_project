@@ -1,6 +1,7 @@
 test.py
 private/
-api_key/
+api_key/*
+!api_key/oauth.json.example
 .env
 venv/
 
@@ -11,11 +12,15 @@ __pycache__/
 *.pyc
 
 *.html
+!dashboard/templates/**/*.html
 *.png
 *.jpg
 log*
 less*
 final_project/
+
+# Dashboard runtime artefacts
+dashboard/audit.jsonl
 
 # Large binaries — use package managers instead
 *.exe

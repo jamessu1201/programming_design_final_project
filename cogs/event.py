@@ -46,12 +46,18 @@ class Event(commands.Cog):
         self.auto_replies = _load_auto_replies()
         self.replies_enabled = _load_replies_state()
 
+    async def reload_replies_now(self):
+        """Re-read auto_replies + replies_state from disk. Callable from dashboard."""
+        self.auto_replies = _load_auto_replies()
+        self.replies_enabled = _load_replies_state()
+        return len(self.auto_replies)
+
     @commands.command(name="reload_replies")
     @commands.is_owner()
     async def reload_replies(self, ctx: commands.Context):
         """重新載入梗圖自動回應設定"""
-        self.auto_replies = _load_auto_replies()
-        await ctx.send(f"已重新載入 {len(self.auto_replies)} 組自動回應")
+        n = await self.reload_replies_now()
+        await ctx.send(f"已重新載入 {n} 組自動回應")
 
     @commands.command(name="autoreply")
     @commands.has_permissions(manage_guild=True)

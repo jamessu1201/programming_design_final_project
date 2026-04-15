@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Ban 詞 · {{ guild.name }}{% endblock %}
+{% block content %}
+<section>
+  <div class="guild-header">
+    {% if guild.icon %}<img src="{{ guild.icon }}" alt="">{% endif %}
+    <h1>🚫 Ban 詞 — {{ guild.name }}</h1>
+  </div>
+  <p><a href="/guilds/{{ guild.id }}">← 回 {{ guild.name }}</a></p>
+
+  <form method="post" action="/guilds/{{ guild.id }}/banwords/add" class="inline-form">
+    <input type="hidden" name="_csrf" value="{{ csrf_for(session) }}">
+    <input type="text" name="word" placeholder="新增 ban 詞（最多 100 字）" maxlength="100" required>
+    <button type="submit" class="btn btn-primary">新增</button>
+  </form>
+
+  {% if words %}
+  <table class="data">
+    <thead><tr><th>詞</th><th></th></tr></thead>
+    <tbody>
+      {% for w in words %}
+      <tr>
+        <td><code>{{ w }}</code></td>
+        <td>
+          <form method="post" action="/guilds/{{ guild.id }}/banwords/delete" class="inline-form" onsubmit="return confirm('確定刪除「{{ w }}」?')">
+            <input type="hidden" name="_csrf" value="{{ csrf_for(session) }}">
+            <input type="hidden" name="word" value="{{ w }}">
+            <button type="submit" class="btn btn-danger">刪除</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">這個伺服器還沒有 ban 任何詞。</p>
+  {% endif %}
+</section>
+{% endblock %}

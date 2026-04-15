@@ -1,0 +1,7 @@
+{
+  "client_id": "YOUR_DISCORD_APPLICATION_CLIENT_ID",
+  "client_secret": "YOUR_DISCORD_APPLICATION_CLIENT_SECRET",
+  "redirect_uri": "https://dashboard.jamessu1201.com/auth/callback",
+  "host": "127.0.0.1",
+  "port": 8080
+}

@@ -14,6 +14,7 @@ A multi-functional Discord bot with music playback, auto-attendance, LeetCode da
 | **Others** | `!poll`, `!draw`, `!banwords`, `!prefix`, `!count` | Voting, lottery, word filter management, custom prefix |
 | **Conversation** | `!sendtext`, `!sendreply`, `!sendprivate` | Remote messaging (owner only) |
 | **Admin** | `!reload`, `!ra`, `!deploy`, `!autodeploy`, `!bye` | Hot-reload, git auto-deploy, shutdown |
+| **Dashboard** | (web UI at `/`) | FastAPI 管理面板：ban 詞、自動回應、prefix、autodeploy、維運按鈕（OAuth 登入） |
 
 ## Setup
 
@@ -134,6 +135,76 @@ json/
   prefix.json           # Per-server command prefixes
   time.json             # Music playback state
 ```
+
+## Web dashboard
+
+A FastAPI 後台跟 bot 同 process 跑，可以從瀏覽器調 ban 詞、autoreply、prefix、autodeploy，
+也能按按鈕 sync slash / reload all / git pull。授權走 Discord OAuth2，只有 bot owner 與
+有 `管理伺服器` 權限的人能進來。
+
+### 1. 建立 Discord OAuth credentials
+
+1. 在 [Discord Developer Portal](https://discord.com/developers/applications) 進入你 bot 的 Application
+2. 左側 **OAuth2 → General**：
+   - 抄 `Client ID` 與 `Client Secret`
+   - 在 **Redirects** 加：
+     - 開發 `http://localhost:8080/auth/callback`
+     - 線上 `https://dashboard.jamessu1201.com/auth/callback`（換成你的網域）
+3. 複製範本並填入：
+   ```bash
+   cp api_key/oauth.json.example api_key/oauth.json
+   ```
+   ```json
+   {
+     "client_id": "...",
+     "client_secret": "...",
+     "redirect_uri": "https://dashboard.jamessu1201.com/auth/callback",
+     "host": "127.0.0.1",
+     "port": 8080
+   }
+   ```
+
+`api_key/oauth.json`、`api_key/session.key`、`dashboard/audit.jsonl` 都已被 `.gitignore`，
+不會進 repo。
+
+### 2. 啟動
+
+裝完 `pip install -r requirements.txt` 之後 dashboard cog 會在 bot 啟動時自動掛上 uvicorn。
+本機用 `http://localhost:8080` 直接測。
+
+### 3. 用 Cloudflare Tunnel 公開（推薦）
+
+```bash
+cloudflared tunnel create bot-dashboard
+cloudflared tunnel route dns bot-dashboard dashboard.jamessu1201.com
+```
+
+`~/.cloudflared/config.yml`:
+```yaml
+tunnel: <tunnel-uuid>
+credentials-file: /home/jamessu/.cloudflared/<tunnel-uuid>.json
+ingress:
+  - hostname: dashboard.jamessu1201.com
+    service: http://localhost:8080
+  - service: http_status:404
+```
+
+```bash
+cloudflared tunnel run bot-dashboard         # 或做成 systemd service
+```
+
+Cloudflare 自動 TLS、cache、DDoS 防護；bot 機本身只 listen `127.0.0.1`，不需要開 port。
+要再加一層保護可以在 Cloudflare Zero Trust → Access 設只允許特定 email。
+
+### 4. 權限規則
+
+| 角色 | 看得到 | 能改 |
+|------|--------|------|
+| Bot owner（`private/owners.txt`） | 所有伺服器 + 維運面板 | 全部 |
+| 在某 guild 有 `管理伺服器` 權限 | 該 guild 的 ban 詞 / autoreply 開關 / prefix | 限該 guild |
+| 其他人 | （403） | — |
+
+每筆寫操作都會 append 一行進 `dashboard/audit.jsonl`，方便事後追責。
 
 ## Adding meme responses
 
