@@ -15,8 +15,8 @@ __pycache__/
 !dashboard/templates/**/*.html
 *.png
 *.jpg
-log*
-less*
+/log*
+/less*
 final_project/
 
 # Dashboard runtime artefacts
