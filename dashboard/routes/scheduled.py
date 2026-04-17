@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Per-guild scheduled message CRUD (cron-based)."""
+"""Per-guild scheduled text message CRUD (cron-based)."""
 from __future__ import annotations
 
 import json
@@ -15,15 +15,6 @@ from .. import audit, security
 router = APIRouter()
 
 SCHEDULES_PATH = Path("json/scheduled_messages.json")
-
-ENTRY_TYPES = ("text", "leetcode_daily", "happy_birthday", "lol_reminder", "contest_check")
-TYPE_LABELS = {
-    "text": "純文字",
-    "leetcode_daily": "LeetCode 每日題",
-    "happy_birthday": "生日提醒",
-    "lol_reminder": "LOL 提醒",
-    "contest_check": "LeetCode 比賽偵測",
-}
 
 
 def _load() -> dict:
@@ -56,6 +47,12 @@ def _channel_name(bot, guild_id: int, channel_id: int) -> str:
     return f"#{ch.name}" if ch else f"#{channel_id}"
 
 
+def _is_text_entry(e: dict) -> bool:
+    # Only expose plain-text entries; legacy built-in types stay invisible.
+    t = e.get("type", "text")
+    return t == "text"
+
+
 @router.get("/guilds/{guild_id}/scheduled")
 async def show(
     request: Request,
@@ -64,15 +61,11 @@ async def show(
 ):
     bot = request.app.state.bot
     guild = bot.get_guild(guild_id)
-    entries = _load().get(str(guild_id), [])
-    enriched = []
-    for e in entries:
-        enriched.append({
-            **e,
-            "type": e.get("type", "text"),
-            "type_label": TYPE_LABELS.get(e.get("type", "text"), e.get("type", "text")),
-            "channel_label": _channel_name(bot, guild_id, int(e["channel_id"])),
-        })
+    entries = [e for e in _load().get(str(guild_id), []) if _is_text_entry(e)]
+    enriched = [
+        {**e, "channel_label": _channel_name(bot, guild_id, int(e["channel_id"]))}
+        for e in entries
+    ]
     return request.app.state.templates.TemplateResponse(
         request,
         "scheduled.html",
@@ -84,7 +77,6 @@ async def show(
                 "icon": str(guild.icon.url) if guild and guild.icon else None,
             },
             "entries": enriched,
-            "type_labels": TYPE_LABELS,
         },
     )
 
@@ -94,17 +86,13 @@ async def add(
     request: Request,
     guild_id: int,
     channel_id: str = Form(...),
-    message: str = Form(""),
+    message: str = Form(...),
     cron: str = Form(...),
-    type: str = Form("text"),
     enabled: str = Form("on"),
     session: security.Session = Depends(security.require_csrf),
 ):
     if not session.is_owner and guild_id not in session.allowed_guilds:
         raise HTTPException(403, "no access to this guild")
-
-    if type not in ENTRY_TYPES:
-        raise HTTPException(400, f"未知類型: {type}")
 
     cron = cron.strip()
     if not croniter.is_valid(cron):
@@ -119,19 +107,18 @@ async def add(
     if guild is None or guild.get_channel(cid) is None:
         raise HTTPException(400, f"找不到頻道 {cid}")
 
-    message = (message or "").strip()
-    if type == "text":
-        if not message:
-            raise HTTPException(400, "純文字類型必須填訊息")
-        if len(message) > 1900:
-            raise HTTPException(400, "訊息最長 1900 字")
+    message = message.strip()
+    if not message:
+        raise HTTPException(400, "訊息不可為空")
+    if len(message) > 1900:
+        raise HTTPException(400, "訊息最長 1900 字")
 
     data = _load()
     bucket = data.setdefault(str(guild_id), [])
     new_entry = {
         "id": uuid.uuid4().hex[:12],
         "channel_id": str(cid),
-        "type": type,
+        "type": "text",
         "message": message,
         "cron": cron,
         "enabled": (enabled == "on"),
@@ -164,7 +151,7 @@ async def toggle(
     data = _load()
     bucket = data.get(str(guild_id), [])
     for entry in bucket:
-        if entry["id"] == entry_id:
+        if entry["id"] == entry_id and _is_text_entry(entry):
             before = entry["enabled"]
             entry["enabled"] = not before
             _save(data)
@@ -197,7 +184,7 @@ async def delete(
     removed = None
     new_bucket = []
     for entry in bucket:
-        if entry["id"] == entry_id:
+        if entry["id"] == entry_id and _is_text_entry(entry):
             removed = entry
         else:
             new_bucket.append(entry)

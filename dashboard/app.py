@@ -18,6 +18,7 @@ from . import security
 from .limits import limiter
 from .routes import (
     auth,
+    auto_tasks,
     autodeploy,
     autoreplies,
     banwords,
@@ -64,6 +65,7 @@ def create_app(bot) -> FastAPI:
     app.include_router(prefix.router)
     app.include_router(scheduled.router)
     app.include_router(autodeploy.router)
+    app.include_router(auto_tasks.router)
     app.include_router(maintenance.router)
 
     @app.exception_handler(401)

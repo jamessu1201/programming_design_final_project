@@ -7,23 +7,19 @@
     <h1>⏰ 定時訊息 — {{ guild.name }}</h1>
   </div>
   <p><a href="/guilds/{{ guild.id }}">← 回 {{ guild.name }}</a></p>
+  <p class="muted">這頁是你自己加的定時訊息。LeetCode / 生日 / LOL / 比賽那 4 個內建任務在
+    {% if session.is_owner %}<a href="/maintenance">/maintenance</a>{% else %}/maintenance（owner only）{% endif %}
+    開關。</p>
 
   <div class="card">
     <h2>新增一筆</h2>
     <form method="post" action="/guilds/{{ guild.id }}/scheduled/add" class="stacked-form">
       <input type="hidden" name="_csrf" value="{{ csrf_for(session) }}">
-      <label>類型
-        <select name="type">
-          {% for k, v in type_labels.items() %}
-          <option value="{{ k }}">{{ v }}</option>
-          {% endfor %}
-        </select>
-      </label>
       <label>頻道 ID（右鍵頻道 → 複製 ID）
         <input type="text" name="channel_id" required pattern="\d+" placeholder="例：1234567890123456789">
       </label>
-      <label>訊息（純文字類型必填，內建類型可留空）
-        <textarea name="message" rows="3" maxlength="1900" placeholder="早安！記得吃早餐"></textarea>
+      <label>訊息（最長 1900 字，可用 &lt;@user_id&gt; / &lt;@&amp;role_id&gt; mention）
+        <textarea name="message" rows="3" maxlength="1900" required placeholder="早安！記得吃早餐"></textarea>
       </label>
       <label>Cron 表達式（5 欄：分 時 日 月 星期，時區 UTC+8）
         <input type="text" name="cron" required placeholder="0 8 * * *  ← 每天早上 8:00">
@@ -35,7 +31,6 @@
           <li><code>30 22 * * 5</code> — 每週五 22:30</li>
           <li><code>0 9 * * 1-5</code> — 平日 09:00</li>
           <li><code>*/30 * * * *</code> — 每 30 分鐘</li>
-          <li><code>*/5 * * * *</code> — 每 5 分鐘</li>
           <li><code>0 0 1 * *</code> — 每月 1 號 00:00</li>
         </ul>
       </details>
@@ -48,20 +43,13 @@
 
   {% if entries %}
   <table class="data">
-    <thead><tr><th>狀態</th><th>類型</th><th>頻道</th><th>內容 / 動作</th><th>Cron</th><th>上次發送</th><th></th></tr></thead>
+    <thead><tr><th>狀態</th><th>頻道</th><th>訊息</th><th>Cron</th><th>上次發送</th><th></th></tr></thead>
     <tbody>
       {% for e in entries %}
       <tr>
         <td>{% if e.enabled %}🟢 開{% else %}🔴 關{% endif %}</td>
-        <td>{{ e.type_label }}</td>
         <td>{{ e.channel_label }}</td>
-        <td>
-          {% if e.type == 'text' %}
-            {% if e.message|length > 60 %}{{ e.message[:60] }}…{% else %}{{ e.message }}{% endif %}
-          {% else %}
-            <em>內建動作</em>
-          {% endif %}
-        </td>
+        <td>{% if e.message|length > 60 %}{{ e.message[:60] }}…{% else %}{{ e.message }}{% endif %}</td>
         <td><code>{{ e.cron }}</code></td>
         <td><small>{{ e.last_fired or '—' }}</small></td>
         <td>
@@ -79,7 +67,7 @@
     </tbody>
   </table>
   {% else %}
-  <p class="muted">這個伺服器還沒有定時訊息。內建任務會在 bot 啟動後自動寫入。</p>
+  <p class="muted">這個伺服器還沒有自訂的定時訊息。</p>
   {% endif %}
 </section>
 {% endblock %}

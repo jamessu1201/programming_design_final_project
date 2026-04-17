@@ -51,6 +51,11 @@ async def show(
                 "guild": ch.guild.name if ch.guild else "?",
             }
 
+    auto_cog = bot.get_cog("Auto")
+    auto_tasks_state = {}
+    if auto_cog is not None and hasattr(auto_cog, "_task_state"):
+        auto_tasks_state = dict(auto_cog._task_state)
+
     return request.app.state.templates.TemplateResponse(
         request,
         "maintenance.html",
@@ -61,6 +66,7 @@ async def show(
             "guild_count": guild_count,
             "autodeploy": autodeploy,
             "autodeploy_channel": autodeploy_channel,
+            "auto_tasks": auto_tasks_state,
         },
     )
 

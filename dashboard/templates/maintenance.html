@@ -31,6 +31,38 @@
   </div>
 
   <div class="card">
+    <h2>內建排程任務</h2>
+    {% if auto_tasks %}
+    <table class="data">
+      <thead><tr><th>任務</th><th>說明</th><th>狀態</th><th></th></tr></thead>
+      <tbody>
+        {% set descs = {
+          'leetcode': '每天 08:05 (UTC+8) 發 LeetCode 每日題',
+          'happy_birthday': '每天 00:00 (UTC+8) 生日提醒',
+          'lol_reminder': '每天 23:xx 隨機分鐘 LOL 提醒',
+          'contest_check': '每 5 分鐘檢查 LeetCode 比賽',
+        } %}
+        {% for name, enabled in auto_tasks.items() %}
+        <tr>
+          <td><code>{{ name }}</code></td>
+          <td>{{ descs.get(name, '') }}</td>
+          <td>{% if enabled %}🟢 開{% else %}🔴 關{% endif %}</td>
+          <td>
+            <form method="post" action="/maintenance/auto-tasks/{{ name }}/toggle" class="inline-form">
+              <input type="hidden" name="_csrf" value="{{ csrf_for(session) }}">
+              <button type="submit" class="btn">{{ '關閉' if enabled else '開啟' }}</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted">Auto cog 還沒載入。</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
     <h2>Auto-deploy</h2>
     {% if autodeploy.get('enabled') %}
       <p>🟢 已開啟，回報到
