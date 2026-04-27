@@ -2,6 +2,7 @@ test.py
 private/
 api_key/*
 !api_key/oauth.json.example
+.claude/
 .env
 venv/
 
