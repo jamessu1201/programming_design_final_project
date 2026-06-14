@@ -12,6 +12,7 @@ A multi-functional Discord bot with music playback, auto-attendance, LeetCode da
 | **Attend** | `!attend` | Auto-attendance for CCU ecourse2 (Playwright + 2Captcha) |
 | **Event** | (automatic) | Keyword-triggered meme responses, bad word filter |
 | **Others** | `!poll`, `!draw`, `!banwords`, `!prefix`, `!count` | Voting, lottery, word filter management, custom prefix |
+| **Queue** | `/queue add`, `/queue list`, `/queue top`, `/queue take`, `/queue pop`, `/queue queues`, `/queue clear` | 多具名排隊系統（slash + autocomplete）：人人可加、隊頭人人可移除、中間/尾端只能拿自己的 |
 | **Conversation** | `!sendtext`, `!sendreply`, `!sendprivate` | Remote messaging (owner only) |
 | **Admin** | `!reload`, `!ra`, `!deploy`, `!autodeploy`, `!bye` | Hot-reload, git auto-deploy, shutdown |
 | **Dashboard** | (web UI at `/`) | FastAPI 管理面板：ban 詞、自動回應、prefix、autodeploy、維運按鈕（OAuth 登入） |
@@ -129,10 +130,12 @@ cogs/
   event.py              # Message listeners, meme responses, word filter
   music.py              # YouTube music player
   others.py             # Polls, lottery, prefix, misc
+  queue.py              # 多具名排隊系統（slash 指令 + autocomplete）
 json/
   auto_replies.json     # Meme trigger words + image URLs (editable)
   badword.json          # Per-server banned words
   prefix.json           # Per-server command prefixes
+  queues.json           # 排隊資料（執行期自動產生，已 gitignore）
   time.json             # Music playback state
 ```
 
