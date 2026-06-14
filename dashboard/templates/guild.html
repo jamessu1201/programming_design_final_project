@@ -15,6 +15,8 @@
     <a href="/guilds/{{ guild.id }}/autoreplies">💬 自動回應</a>
     <a href="/guilds/{{ guild.id }}/scheduled">⏰ 定時訊息</a>
     <a href="/guilds/{{ guild.id }}/prefix">⚙ Prefix</a>
+    <a href="/guilds/{{ guild.id }}/queues">📋 排隊</a>
+    {% if guild.id == points_guild_id %}<a href="/guilds/{{ guild.id }}/points">🍑 屁眼點數</a>{% endif %}
     <a href="/">← 回伺服器列表</a>
   </nav>
 </section>

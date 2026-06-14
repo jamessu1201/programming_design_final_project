@@ -24,7 +24,9 @@ from .routes import (
     banwords,
     guilds,
     maintenance,
+    points,
     prefix,
+    queues,
     scheduled,
 )
 
@@ -60,6 +62,8 @@ def create_app(bot) -> FastAPI:
 
     app.include_router(auth.router)
     app.include_router(guilds.router)
+    app.include_router(queues.router)
+    app.include_router(points.router)
     app.include_router(banwords.router)
     app.include_router(autoreplies.router)
     app.include_router(prefix.router)

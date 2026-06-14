@@ -198,16 +198,14 @@ class Points(commands.Cog):
         await interaction.response.send_message(
             embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
-    @group.command(name="reset", description="歸零某人的點數；不填 user 則清空整個伺服器（限管理員）")
+    @group.command(name="reset", description="歸零某人的點數；不填 user 則清空整個伺服器（限 bot owner）")
     @app_commands.describe(user="要歸零的人（不填＝清空整個伺服器）")
     async def reset(self, interaction: discord.Interaction, user: discord.Member = None):
         if not await self._guard(interaction):
             return
-        is_owner = await self.bot.is_owner(interaction.user)
-        perms = getattr(interaction.user, "guild_permissions", None)
-        if not is_owner and not (perms and perms.manage_guild):
+        if not await self.bot.is_owner(interaction.user):
             return await interaction.response.send_message(
-                "只有管理員（管理伺服器權限）或 bot owner 能歸零點數。", ephemeral=True)
+                "只有 bot owner 能歸零點數。", ephemeral=True)
 
         async with self._lock:
             data = _load()

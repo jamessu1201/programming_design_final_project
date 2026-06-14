@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}排隊 · {{ guild.name }}{% endblock %}
+{% block content %}
+<section>
+  <div class="guild-header">
+    {% if guild.icon %}<img src="{{ guild.icon }}" alt="">{% endif %}
+    <h1>📋 排隊 — {{ guild.name }}</h1>
+  </div>
+  <p><a href="/guilds/{{ guild.id }}">← 回 {{ guild.name }}</a></p>
+  <p class="muted">這頁唯讀，加入 / 拿走 / 移除請在 Discord 用 <code>/queue</code>。</p>
+
+  {% if queues %}
+    {% for q in queues %}
+    <div class="card">
+      <h2>📋 {{ q.name }}（{{ q.items | length }} 人）</h2>
+      {% if q.items %}
+      <table class="data">
+        <thead><tr><th>#</th><th>id</th><th>排隊者</th><th>內容</th></tr></thead>
+        <tbody>
+          {% for it in q.items %}
+          <tr>
+            <td>{% if loop.first %}👑 {% endif %}{{ loop.index }}</td>
+            <td><code>{{ it.id }}</code></td>
+            <td>{{ it.user_name }}</td>
+            <td>{{ it.content }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="muted">這條 queue 是空的。</p>
+      {% endif %}
+    </div>
+    {% endfor %}
+  {% else %}
+  <p class="muted">這個伺服器還沒有任何 queue。</p>
+  {% endif %}
+</section>
+{% endblock %}

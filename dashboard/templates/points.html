@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}屁眼點數 · {{ guild.name }}{% endblock %}
+{% block content %}
+<section>
+  <div class="guild-header">
+    {% if guild.icon %}<img src="{{ guild.icon }}" alt="">{% endif %}
+    <h1>🍑 屁眼點數 — {{ guild.name }}</h1>
+  </div>
+  <p><a href="/guilds/{{ guild.id }}">← 回 {{ guild.name }}</a></p>
+
+  {% if not is_target %}
+  <p class="muted">此伺服器沒有屁眼點數系統。</p>
+  {% else %}
+    {% if rows %}
+    <table class="data">
+      <thead><tr><th>名次</th><th>名稱</th><th>點數</th><th>🎙️ 分鐘</th><th>💬 訊息</th></tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td>{% if r.rank == 1 %}🥇{% elif r.rank == 2 %}🥈{% elif r.rank == 3 %}🥉{% else %}{{ r.rank }}{% endif %}</td>
+          <td>{{ r.name }}</td>
+          <td><strong>{{ r.points }}</strong></td>
+          <td>{{ r.voice_min }}</td>
+          <td>{{ r.messages }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted">目前還沒有人有屁眼點數。</p>
+    {% endif %}
+
+    {% if session.is_owner %}
+    <div class="card">
+      <h2>危險區（owner）</h2>
+      <form method="post" action="/guilds/{{ guild.id }}/points/reset" class="inline-form" onsubmit="return confirm('確定清空整個伺服器的屁眼點數？此操作無法復原。')">
+        <input type="hidden" name="_csrf" value="{{ csrf_for(session) }}">
+        <button type="submit" class="btn btn-danger">清空整個伺服器的點數</button>
+      </form>
+    </div>
+    {% endif %}
+  {% endif %}
+</section>
+{% endblock %}
