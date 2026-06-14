@@ -13,6 +13,7 @@ A multi-functional Discord bot with music playback, auto-attendance, LeetCode da
 | **Event** | (automatic) | Keyword-triggered meme responses, bad word filter |
 | **Others** | `!poll`, `!draw`, `!banwords`, `!prefix`, `!count` | Voting, lottery, word filter management, custom prefix |
 | **Queue** | `/queue add`, `/queue list`, `/queue top`, `/queue take`, `/queue pop`, `/queue queues`, `/queue clear` | 多具名排隊系統（slash + autocomplete）：人人可加、隊頭人人可移除、中間/尾端只能拿自己的 |
+| **Points** | `/points top`, `/points view`, `/points reset` | 屁眼點數活躍度系統（限特定伺服器）：語音每分鐘 +5、訊息每則 +1，看排行榜與個人點數 |
 | **Conversation** | `!sendtext`, `!sendreply`, `!sendprivate` | Remote messaging (owner only) |
 | **Admin** | `!reload`, `!ra`, `!deploy`, `!autodeploy`, `!bye` | Hot-reload, git auto-deploy, shutdown |
 | **Dashboard** | (web UI at `/`) | FastAPI 管理面板：ban 詞、自動回應、prefix、autodeploy、維運按鈕（OAuth 登入） |
@@ -131,11 +132,13 @@ cogs/
   music.py              # YouTube music player
   others.py             # Polls, lottery, prefix, misc
   queue.py              # 多具名排隊系統（slash 指令 + autocomplete）
+  points.py             # 屁眼點數活躍度系統（語音 + 訊息計點，限特定伺服器）
 json/
   auto_replies.json     # Meme trigger words + image URLs (editable)
   badword.json          # Per-server banned words
   prefix.json           # Per-server command prefixes
   queues.json           # 排隊資料（執行期自動產生，已 gitignore）
+  points.json           # 屁眼點數資料（執行期自動產生，已 gitignore）
   time.json             # Music playback state
 ```
 
