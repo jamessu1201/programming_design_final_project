@@ -155,10 +155,10 @@ class Points(commands.Cog):
                 "目前還沒有人有屁眼點數，快去語音或聊天吧。", ephemeral=True)
 
         lines = []
-        for rank, (_uid, rec) in enumerate(board[:LEADERBOARD_SIZE], start=1):
+        for rank, (uid, rec) in enumerate(board[:LEADERBOARD_SIZE], start=1):
             tag = MEDALS.get(rank, f"**{rank}.**")
             lines.append(
-                f"{tag} {rec['name']} — **{rec['points']}** 點"
+                f"{tag} <@{uid}> — **{rec['points']}** 點"
                 f"（🎙️{rec['voice_min']} 分 / 💬{rec['messages']} 則）"
             )
         embed = discord.Embed(
@@ -188,8 +188,9 @@ class Points(commands.Cog):
                 allowed_mentions=discord.AllowedMentions.none())
         rec = board[rank - 1][1]
         embed = discord.Embed(
-            title=f"🍑 {rec['name']} 的屁眼點數",
+            title="🍑 屁眼點數",
             description=(
+                f"{target.mention}\n"
                 f"**{rec['points']}** 點 · 第 **{rank}** 名（共 {len(board)} 人）\n"
                 f"🎙️ 語音 {rec['voice_min']} 分鐘 ・ 💬 訊息 {rec['messages']} 則"
             ),

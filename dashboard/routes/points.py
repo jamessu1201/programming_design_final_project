@@ -33,6 +33,21 @@ def _save(data: dict) -> None:
         json.dump(data, f, ensure_ascii=False)
 
 
+def _resolve_name(bot, guild, uid: str, rec: dict) -> str:
+    """即時抓現在的帳號名；查不到才退回存檔的名字。"""
+    try:
+        uid_int = int(uid)
+    except (TypeError, ValueError):
+        return rec.get("name", str(uid))
+    member = guild.get_member(uid_int) if guild else None
+    if member is not None:
+        return member.display_name
+    user = bot.get_user(uid_int)
+    if user is not None:
+        return user.name
+    return rec.get("name", str(uid))
+
+
 @router.get("/guilds/{guild_id}/points")
 async def leaderboard(
     request: Request,
@@ -49,7 +64,7 @@ async def leaderboard(
             rows.append({
                 "rank": rank,
                 "user_id": uid,
-                "name": rec.get("name", uid),
+                "name": _resolve_name(bot, guild, uid, rec),
                 "points": rec.get("points", 0),
                 "voice_min": rec.get("voice_min", 0),
                 "messages": rec.get("messages", 0),
