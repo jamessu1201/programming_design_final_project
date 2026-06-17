@@ -1,0 +1,34 @@
+# Build context excludes. Code is COPYed into the image; everything below is
+# either dev-only, huge, or provided at runtime from the /data bind mount.
+
+# dev / VCS / CI
+venv/
+__pycache__/
+*.pyc
+.git/
+.github/
+.claude/
+test.py
+
+# runtime state, secrets, local assets -> come from the /data bind mount
+json/
+api_key/
+private/
+logs/
+config.yaml
+*.png
+*.PNG
+ur_noob.png
+joins.csv
+.env
+
+# large binaries / browser bundles -> ffmpeg via apt, chromium via playmright,
+# CfT chrome/driver come from the /data bind mount
+ffmpeg.exe
+chrome-win64/
+chrome-linux64/
+chromedriver-linux64/
+driver/
+
+# deploy artefacts
+*.tar.gz

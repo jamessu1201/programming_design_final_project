@@ -1,0 +1,30 @@
+services:
+  dcbot:
+    build: .
+    image: dcbot:latest
+    container_name: dcbot
+    restart: unless-stopped
+    init: true
+    env_file: .env
+    environment:
+      - TZ=Asia/Taipei
+    # Single bind mount = all runtime state/secrets/assets (config.yaml, json/,
+    # api_key/, private/, logs/, ur_noob.png, chrome-linux64/, chromedriver-linux64/).
+    volumes:
+      - /mnt/docker-data/dcbot:/data
+    networks:
+      - traefik
+    # Dashboard (uvicorn on 0.0.0.0:8080 inside the container) is published by
+    # Traefik on the `web` (:80) entrypoint; CT100 cloudflared fronts the public
+    # https for dashboard.jamessu1201.com. Port 8080 is NOT published to the host
+    # (Traefik already uses host :8080, and reaches us over the docker network).
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.dcbot.entrypoints=web"
+      - "traefik.http.routers.dcbot.rule=Host(`dashboard.jamessu1201.com`)"
+      - "traefik.http.services.dcbot.loadbalancer.server.port=8080"
+
+# CT108 apps LXC 既有的 Traefik 網路（與 moneybank/fb-watcher 共用）
+networks:
+  traefik:
+    external: true
