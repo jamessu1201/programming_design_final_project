@@ -26,7 +26,8 @@ RUN pip install -r requirements.txt \
 
 COPY . .
 
-# Run from the bind mount so relative runtime paths land on /data, while imports
-# still resolve against /app (sys.path[0] = the dir of project.py).
-WORKDIR /data
-CMD ["python", "/app/project.py"]
+# cwd stays /app so the code's relative paths (os.listdir("cogs"), dashboard
+# templates, leetcode/attend_* imports) resolve. The runtime data dirs
+# (config.yaml, json/, api_key/, private/, logs/) are overlaid into /app from
+# the /data bind mount via compose volumes.
+CMD ["python", "project.py"]

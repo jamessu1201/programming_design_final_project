@@ -8,10 +8,14 @@ services:
     env_file: .env
     environment:
       - TZ=Asia/Taipei
-    # Single bind mount = all runtime state/secrets/assets (config.yaml, json/,
-    # api_key/, private/, logs/, ur_noob.png, chrome-linux64/, chromedriver-linux64/).
+    # Overlay the runtime data dirs from the HDD bind into /app (where the code
+    # expects them by relative path). Everything else (code) is baked in the image.
     volumes:
-      - /mnt/docker-data/dcbot:/data
+      - /mnt/docker-data/dcbot/config.yaml:/app/config.yaml
+      - /mnt/docker-data/dcbot/json:/app/json
+      - /mnt/docker-data/dcbot/api_key:/app/api_key
+      - /mnt/docker-data/dcbot/private:/app/private
+      - /mnt/docker-data/dcbot/logs:/app/logs
     networks:
       - traefik
     # Dashboard (uvicorn on 0.0.0.0:8080 inside the container) is published by
