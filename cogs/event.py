@@ -6,8 +6,9 @@ import random
 
 import discord
 from discord.ext import commands
-import json
 from unicodedata import lookup
+
+import storage
 
 logger = logging.getLogger(__name__)
 
@@ -17,26 +18,16 @@ REPLIES_STATE_JSON = "json/replies_state.json"
 
 
 def _load_auto_replies():
-    try:
-        with open(AUTO_REPLIES_JSON, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        logger.warning("auto_replies.json not found, meme replies disabled")
-        return []
+    return storage.read_json(AUTO_REPLIES_JSON, default=[])
 
 
 def _load_replies_state():
     """Load per-guild on/off state. Returns dict like {"guild_id": true/false}"""
-    try:
-        with open(REPLIES_STATE_JSON, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return {}
+    return storage.read_json(REPLIES_STATE_JSON)
 
 
 def _save_replies_state(state):
-    with open(REPLIES_STATE_JSON, "w", encoding="utf-8") as f:
-        json.dump(state, f)
+    storage.write_json_atomic(REPLIES_STATE_JSON, state)
 
 
 class Event(commands.Cog):
@@ -64,9 +55,12 @@ class Event(commands.Cog):
     async def toggle_autoreply(self, ctx: commands.Context):
         """開關關鍵字自動回應（管理員限定）"""
         guild_id = str(ctx.guild.id)
-        current = self.replies_enabled.get(guild_id, True)
-        self.replies_enabled[guild_id] = not current
-        _save_replies_state(self.replies_enabled)
+        async with storage.lock_for(REPLIES_STATE_JSON):
+            state = _load_replies_state()
+            current = state.get(guild_id, True)
+            state[guild_id] = not current
+            _save_replies_state(state)
+        self.replies_enabled = state
         status = "開啟" if not current else "關閉"
         await ctx.send(f"關鍵字自動回應已**{status}**")
 
@@ -78,14 +72,9 @@ class Event(commands.Cog):
         if message.author.id == self.bot.user.id:
             return
 
-        try:
-            with open(BADWORD_JSON, "r", encoding="utf-8") as file:
-                words = json.load(file)
-        except FileNotFoundError:
-            logger.info("badword.json does not exist, creating")
-            with open(BADWORD_JSON, "w", encoding="utf-8") as file:
-                words = {"useless": [""]}
-                json.dump(words, file)
+        words = storage.read_json(BADWORD_JSON)
+        if not words:
+            words = {"useless": [""]}
 
         # Auto replies (respects per-guild toggle)
         guild_id = str(message.guild.id) if message.guild else None

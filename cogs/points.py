@@ -7,14 +7,13 @@
 """
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
-import os
 
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
+
+import storage
 
 logger = logging.getLogger(__name__)
 
@@ -30,17 +29,11 @@ MEDALS = {1: "🥇", 2: "🥈", 3: "🥉"}
 # ── 持久化（純函式，方便測試） ──
 
 def _load() -> dict:
-    try:
-        with open(POINTS_JSON, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return {}
+    return storage.read_json(POINTS_JSON)
 
 
 def _save(data: dict) -> None:
-    os.makedirs(os.path.dirname(POINTS_JSON), exist_ok=True)
-    with open(POINTS_JSON, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False)
+    storage.write_json_atomic(POINTS_JSON, data)
 
 
 # ── 點數核心邏輯（純函式，operate on passed dict） ──
@@ -80,7 +73,9 @@ def _leaderboard(data: dict, guild_id):
 class Points(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self._lock = asyncio.Lock()
+        # Shared with the dashboard's points route so bot writes and dashboard
+        # resets serialise against each other (same process, same loop).
+        self._lock = storage.lock_for(POINTS_JSON)
         self.voice_tick.start()
 
     def cog_unload(self):

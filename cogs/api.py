@@ -50,9 +50,9 @@ class Api(commands.Cog):
                 message=i
                 break
         if(message==-1):
-            
-            message=randint(0,length-1)
-            
+
+            message=random.randint(0,length-1)
+
         await ctx.send(pic_database[message]['圖片連結'])
 
     @commands.command(name='weather')

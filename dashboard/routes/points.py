@@ -2,12 +2,13 @@
 """屁眼點數排行榜（限特定伺服器）。看：能管理該 guild 的人；reset：只有 owner。"""
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
+
+import storage
 
 from .. import audit, security
 from cogs.points import TARGET_GUILD
@@ -18,19 +19,11 @@ POINTS_PATH = Path("json/points.json")
 
 
 def _load() -> dict:
-    if not POINTS_PATH.exists():
-        return {}
-    try:
-        with POINTS_PATH.open("r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return {}
+    return storage.read_json(POINTS_PATH)
 
 
 def _save(data: dict) -> None:
-    POINTS_PATH.parent.mkdir(exist_ok=True)
-    with POINTS_PATH.open("w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False)
+    storage.write_json_atomic(POINTS_PATH, data)
 
 
 def _resolve_name(bot, guild, uid: str, rec: dict) -> str:
@@ -95,22 +88,23 @@ async def reset(
     if not session.is_owner:
         raise HTTPException(403, "owner only")
 
-    data = _load()
-    g = data.get(str(guild_id), {})
-    before = len(g)
-    if user_id:
-        if str(user_id) in g:
-            del g[str(user_id)]
-            if not g:
-                data.pop(str(guild_id), None)
+    async with storage.lock_for(POINTS_PATH):
+        data = _load()
+        g = data.get(str(guild_id), {})
+        before = len(g)
+        if user_id:
+            if str(user_id) in g:
+                del g[str(user_id)]
+                if not g:
+                    data.pop(str(guild_id), None)
+                _save(data)
+            action = "reset_user"
+            after = {"removed_user": user_id}
+        else:
+            data.pop(str(guild_id), None)
             _save(data)
-        action = "reset_user"
-        after = {"removed_user": user_id}
-    else:
-        data.pop(str(guild_id), None)
-        _save(data)
-        action = "reset_all"
-        after = {"cleared": before}
+            action = "reset_all"
+            after = {"cleared": before}
 
     audit.write_audit(
         user_id=session.user_id,

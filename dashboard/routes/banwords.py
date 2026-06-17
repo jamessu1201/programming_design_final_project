@@ -2,11 +2,12 @@
 """Per-guild banword CRUD."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
+
+import storage
 
 from .. import audit, security
 
@@ -16,19 +17,11 @@ BADWORD_PATH = Path("json/badword.json")
 
 
 def _load() -> dict:
-    if not BADWORD_PATH.exists():
-        return {}
-    try:
-        with BADWORD_PATH.open("r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return {}
+    return storage.read_json(BADWORD_PATH)
 
 
 def _save(data: dict) -> None:
-    BADWORD_PATH.parent.mkdir(exist_ok=True)
-    with BADWORD_PATH.open("w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    storage.write_json_atomic(BADWORD_PATH, data, indent=2)
 
 
 @router.get("")
@@ -73,16 +66,17 @@ async def add_word(
             status_code=303,
         )
 
-    data = _load()
-    bucket = data.setdefault(str(guild_id), [])
-    if word in bucket:
-        return RedirectResponse(
-            url=f"/guilds/{guild_id}/banwords?error=duplicate",
-            status_code=303,
-        )
-    before = list(bucket)
-    bucket.append(word)
-    _save(data)
+    async with storage.lock_for(BADWORD_PATH):
+        data = _load()
+        bucket = data.setdefault(str(guild_id), [])
+        if word in bucket:
+            return RedirectResponse(
+                url=f"/guilds/{guild_id}/banwords?error=duplicate",
+                status_code=303,
+            )
+        before = list(bucket)
+        bucket.append(word)
+        _save(data)
     audit.write_audit(
         user_id=session.user_id,
         username=session.username,
@@ -105,15 +99,16 @@ async def delete_word(
     if not session.is_owner and guild_id not in session.allowed_guilds:
         return RedirectResponse(url="/", status_code=302)
 
-    data = _load()
-    bucket = data.get(str(guild_id), [])
-    if word not in bucket:
-        return RedirectResponse(url=f"/guilds/{guild_id}/banwords", status_code=303)
-    before = list(bucket)
-    bucket.remove(word)
-    if not bucket:
-        data.pop(str(guild_id), None)
-    _save(data)
+    async with storage.lock_for(BADWORD_PATH):
+        data = _load()
+        bucket = data.get(str(guild_id), [])
+        if word not in bucket:
+            return RedirectResponse(url=f"/guilds/{guild_id}/banwords", status_code=303)
+        before = list(bucket)
+        bucket.remove(word)
+        if not bucket:
+            data.pop(str(guild_id), None)
+        _save(data)
     audit.write_audit(
         user_id=session.user_id,
         username=session.username,

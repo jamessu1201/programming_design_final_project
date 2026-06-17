@@ -2,11 +2,12 @@
 """Per-guild prefix setting (mirrors cogs/others.py rules)."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
+
+import storage
 
 from .. import audit, security
 
@@ -18,19 +19,11 @@ MAX_PREFIX_LEN = 20
 
 
 def _load() -> dict:
-    if not PREFIX_PATH.exists():
-        return {}
-    try:
-        with PREFIX_PATH.open("r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return {}
+    return storage.read_json(PREFIX_PATH)
 
 
 def _save(data: dict) -> None:
-    PREFIX_PATH.parent.mkdir(exist_ok=True)
-    with PREFIX_PATH.open("w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False)
+    storage.write_json_atomic(PREFIX_PATH, data)
 
 
 @router.get("/guilds/{guild_id}/prefix")
@@ -77,10 +70,11 @@ async def set_prefix(
     if any(c.isspace() for c in new_prefix):
         raise HTTPException(400, "prefix 不可包含空白")
 
-    data = _load()
-    before = data.get(str(guild_id), DEFAULT_PREFIX)
-    data[str(guild_id)] = new_prefix
-    _save(data)
+    async with storage.lock_for(PREFIX_PATH):
+        data = _load()
+        before = data.get(str(guild_id), DEFAULT_PREFIX)
+        data[str(guild_id)] = new_prefix
+        _save(data)
     audit.write_audit(
         user_id=session.user_id,
         username=session.username,

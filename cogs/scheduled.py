@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import datetime
-import json
 import logging
 from pathlib import Path
 from typing import Optional
@@ -12,6 +11,8 @@ import discord
 from croniter import croniter
 from discord.ext import commands, tasks
 
+import storage
+
 logger = logging.getLogger(__name__)
 
 SCHEDULES_PATH = Path("json/scheduled_messages.json")
@@ -19,19 +20,11 @@ TZ = datetime.timezone(datetime.timedelta(hours=8))
 
 
 def load_schedules() -> dict:
-    if not SCHEDULES_PATH.exists():
-        return {}
-    try:
-        with SCHEDULES_PATH.open("r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return {}
+    return storage.read_json(SCHEDULES_PATH)
 
 
 def save_schedules(data: dict) -> None:
-    SCHEDULES_PATH.parent.mkdir(exist_ok=True)
-    with SCHEDULES_PATH.open("w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    storage.write_json_atomic(SCHEDULES_PATH, data, indent=2)
 
 
 def is_valid_cron(expr: str) -> bool:
@@ -65,6 +58,14 @@ class Scheduled(commands.Cog):
 
     @tasks.loop(seconds=30)
     async def tick(self):
+        # Hold the shared lock for the whole pass so a dashboard add/delete
+        # (which takes the same lock) can't land during one of the
+        # `await channel.send(...)` calls below and get clobbered by the
+        # save at the end.
+        async with storage.lock_for(SCHEDULES_PATH):
+            await self._fire_due()
+
+    async def _fire_due(self):
         now = datetime.datetime.now(TZ)
         data = load_schedules()
         dirty = False

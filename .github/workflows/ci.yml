@@ -1,0 +1,25 @@
+name: CI
+
+# The bot autodeploys by polling `main` and hot-reloading changed cogs within
+# ~30s (see cogs/admin.py). A syntax error pushed to main therefore ships to
+# production almost immediately. This workflow byte-compiles every Python file
+# so such breakage is caught on the PR / push before the bot reloads it.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Byte-compile all Python (syntax check)
+        # -x excludes the local venv if one is ever committed by accident.
+        run: python -m compileall -q -x '(^|/)(venv|chrome-[^/]+|chromedriver-[^/]+|driver)/' .

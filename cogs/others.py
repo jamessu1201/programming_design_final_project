@@ -7,6 +7,8 @@ import random
 import json
 from pathlib import Path
 
+import storage
+
 logger = logging.getLogger(__name__)
 
 PREFIX_JSON = "json/prefix.json"
@@ -175,18 +177,22 @@ class Other(commands.Cog):
         if word is None:
             await ctx.send("請輸入要解ban的單字")
             return
-        with open(Path(BADWORD_JSON), "r", encoding="utf-8") as f:
-            words = json.load(f)
         guild_id = str(ctx.guild.id)
-        if guild_id in words:
-            if word in words[guild_id]:
+        async with storage.lock_for(BADWORD_JSON):
+            words = storage.read_json(BADWORD_JSON)
+            if guild_id in words and word in words[guild_id]:
                 words[guild_id].remove(word)
                 if len(words[guild_id]) == 0:
                     del words[guild_id]
-                with open(Path(BADWORD_JSON), "w", encoding="utf-8") as r:
-                    json.dump(words, r)
-                await ctx.send("設定成功!")
-                return
+                storage.write_json_atomic(BADWORD_JSON, words)
+                result = "ok"
+            elif guild_id in words:
+                result = "notbanned"
+            else:
+                result = "none"
+        if result == "ok":
+            await ctx.send("設定成功!")
+        elif result == "notbanned":
             await ctx.send("這個詞沒有被ban過喔!")
         else:
             await ctx.send("沒有被ban的單字喔!")
@@ -198,22 +204,22 @@ class Other(commands.Cog):
         if word is None:
             await ctx.send("請輸入要ban的單字")
             return
-        with open(Path(BADWORD_JSON), "r", encoding="utf-8") as f:
-            words = json.load(f)
         guild_id = str(ctx.guild.id)
-        if guild_id not in words:
-            words[guild_id] = word.split()
-            with open(Path(BADWORD_JSON), "w", encoding="utf-8") as r:
-                json.dump(words, r)
-            await ctx.send("設定成功!")
+        async with storage.lock_for(BADWORD_JSON):
+            words = storage.read_json(BADWORD_JSON)
+            if guild_id not in words:
+                words[guild_id] = word.split()
+                storage.write_json_atomic(BADWORD_JSON, words)
+                result = "ok"
+            elif word in words[guild_id]:
+                result = "dup"
+            else:
+                words[guild_id].extend(word.split())
+                storage.write_json_atomic(BADWORD_JSON, words)
+                result = "ok"
+        if result == "dup":
+            await ctx.send("已經ban過了喔!")
         else:
-            for w in words[guild_id]:
-                if w == word:
-                    await ctx.send("已經ban過了喔!")
-                    return
-            words[guild_id].extend(word.split())
-            with open(Path(BADWORD_JSON), "w", encoding="utf-8") as r:
-                json.dump(words, r)
             await ctx.send("設定成功!")
 
     @commands.command(name="banwordlist")
@@ -351,11 +357,10 @@ class Other(commands.Cog):
         if any(c.isspace() for c in prefixes):
             await ctx.send("prefix 不可包含空白字元。")
             return
-        with open(PREFIX_JSON, "r", encoding="utf-8") as f:
-            custom_prefixes = json.load(f)
-        custom_prefixes[str(ctx.guild.id)] = prefixes
-        with open(PREFIX_JSON, "w", encoding="utf-8") as r:
-            json.dump(custom_prefixes, r)
+        async with storage.lock_for(PREFIX_JSON):
+            custom_prefixes = storage.read_json(PREFIX_JSON)
+            custom_prefixes[str(ctx.guild.id)] = prefixes
+            storage.write_json_atomic(PREFIX_JSON, custom_prefixes)
         await ctx.send(f"Prefix 已設為 `{prefixes}`")
 
     @commands.command(name="draw")

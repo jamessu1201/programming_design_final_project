@@ -69,11 +69,21 @@ def main():
     bot.config = config
 
     @bot.event
-    async def on_ready():
-        for file in os.listdir("cogs"):
+    async def setup_hook():
+        # Load cogs exactly once, before connecting. (on_ready can fire
+        # multiple times on reconnect, which would re-load extensions and
+        # double-register listeners.) One bad cog must not abort the rest.
+        for file in sorted(os.listdir("cogs")):
             if file.endswith(".py") and not file.startswith("_"):
-                logger.info("Loading cogs.%s", file[:-3])
-                await bot.load_extension(f"cogs.{file[:-3]}")
+                ext = f"cogs.{file[:-3]}"
+                try:
+                    await bot.load_extension(ext)
+                    logger.info("Loaded %s", ext)
+                except Exception:
+                    logger.exception("Failed to load %s", ext)
+
+    @bot.event
+    async def on_ready():
         logger.info("Logged in as: %s (%s)", bot.user.name, bot.user.id)
 
     @bot.event

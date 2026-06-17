@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import datetime
-import json
 import logging
-from pathlib import Path
 
 import discord
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
+
+import storage
 
 from .. import audit, security
 from .autodeploy import STATE_PATH as AUTODEPLOY_STATE_PATH
@@ -19,13 +19,7 @@ router = APIRouter(prefix="/maintenance")
 
 
 def _autodeploy_state() -> dict:
-    if not AUTODEPLOY_STATE_PATH.exists():
-        return {}
-    try:
-        with AUTODEPLOY_STATE_PATH.open("r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return {}
+    return storage.read_json(AUTODEPLOY_STATE_PATH)
 
 
 @router.get("")

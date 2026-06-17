@@ -2,11 +2,12 @@
 """Autoreply config (per-guild on/off + global trigger list)."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
+
+import storage
 
 from .. import audit, security
 
@@ -17,35 +18,19 @@ STATE_PATH = Path("json/replies_state.json")
 
 
 def _load_replies() -> list:
-    if not REPLIES_PATH.exists():
-        return []
-    try:
-        with REPLIES_PATH.open("r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return []
+    return storage.read_json(REPLIES_PATH, default=[])
 
 
 def _save_replies(data: list) -> None:
-    REPLIES_PATH.parent.mkdir(exist_ok=True)
-    with REPLIES_PATH.open("w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    storage.write_json_atomic(REPLIES_PATH, data, indent=2)
 
 
 def _load_state() -> dict:
-    if not STATE_PATH.exists():
-        return {}
-    try:
-        with STATE_PATH.open("r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return {}
+    return storage.read_json(STATE_PATH)
 
 
 def _save_state(state: dict) -> None:
-    STATE_PATH.parent.mkdir(exist_ok=True)
-    with STATE_PATH.open("w", encoding="utf-8") as f:
-        json.dump(state, f, ensure_ascii=False)
+    storage.write_json_atomic(STATE_PATH, state)
 
 
 async def _hot_reload_event_cog(bot) -> None:
@@ -96,10 +81,11 @@ async def toggle(
     if not session.is_owner and guild_id not in session.allowed_guilds:
         raise HTTPException(403, "no access to this guild")
 
-    state = _load_state()
-    before = state.get(str(guild_id), True)
-    state[str(guild_id)] = not before
-    _save_state(state)
+    async with storage.lock_for(STATE_PATH):
+        state = _load_state()
+        before = state.get(str(guild_id), True)
+        state[str(guild_id)] = not before
+        _save_state(state)
     await _hot_reload_event_cog(request.app.state.bot)
     audit.write_audit(
         user_id=session.user_id,
@@ -131,10 +117,11 @@ async def add_entry(
     if not url_list:
         raise HTTPException(400, "至少要 1 個 URL")
 
-    data = _load_replies()
-    before = list(data)
-    data.append({"triggers": trigger_list, "urls": url_list})
-    _save_replies(data)
+    async with storage.lock_for(REPLIES_PATH):
+        data = _load_replies()
+        before = list(data)
+        data.append({"triggers": trigger_list, "urls": url_list})
+        _save_replies(data)
     await _hot_reload_event_cog(request.app.state.bot)
     audit.write_audit(
         user_id=session.user_id,
@@ -158,12 +145,13 @@ async def delete_entry(
     if not session.is_owner:
         raise HTTPException(403, "owner only")
 
-    data = _load_replies()
-    if not 0 <= index < len(data):
-        raise HTTPException(400, "bad index")
-    before = list(data)
-    removed = data.pop(index)
-    _save_replies(data)
+    async with storage.lock_for(REPLIES_PATH):
+        data = _load_replies()
+        if not 0 <= index < len(data):
+            raise HTTPException(400, "bad index")
+        before = list(data)
+        removed = data.pop(index)
+        _save_replies(data)
     await _hot_reload_event_cog(request.app.state.bot)
     audit.write_audit(
         user_id=session.user_id,

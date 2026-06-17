@@ -11,6 +11,8 @@ import yaml
 import discord
 from discord.ext import commands, tasks
 
+import storage
+
 logger = logging.getLogger(__name__)
 
 EXTERNAL_MODULES = ["leetcode", "attend_playwright", "attend_program"]
@@ -19,17 +21,11 @@ AUTO_DEPLOY_STATE = "json/autodeploy.json"
 
 
 def _read_autodeploy_state():
-    try:
-        with open(AUTO_DEPLOY_STATE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {}
+    return storage.read_json(AUTO_DEPLOY_STATE)
 
 
 def _write_autodeploy_state(state):
-    os.makedirs(os.path.dirname(AUTO_DEPLOY_STATE), exist_ok=True)
-    with open(AUTO_DEPLOY_STATE, "w", encoding="utf-8") as f:
-        json.dump(state, f)
+    storage.write_json_atomic(AUTO_DEPLOY_STATE, state)
 
 
 class Admin(commands.Cog):
@@ -100,6 +96,12 @@ class Admin(commands.Cog):
             logger.warning("git fetch failed (rc=%s): %s", rc, fetch_err)
             return None
 
+        # only ever auto-deploy main; never reset/reload an unexpected branch
+        branch, _, _ = await self._run_git("rev-parse", "--abbrev-ref", "HEAD")
+        if branch and branch != "main":
+            logger.warning("Auto-deploy skipped: HEAD is on %r, not main", branch)
+            return None
+
         # only count commits that are on FETCH_HEAD but not on HEAD
         count_out, _, rc = await self._run_git(
             "rev-list", "--count", "HEAD..FETCH_HEAD"
@@ -116,6 +118,9 @@ class Admin(commands.Cog):
 
         changed_files = diff_out.split("\n")
         logger.info("Git changes detected: %s", changed_files)
+
+        # remember where we were so a failed reload can be rolled back
+        old_sha, _, _ = await self._run_git("rev-parse", "HEAD")
 
         # pull
         pull_out, pull_err, rc = await self._run_git("pull", "--ff-only")
@@ -181,6 +186,30 @@ class Admin(commands.Cog):
                     success.append(f"{cog_name}(new)")
                 except Exception as e:
                     failed.append(f"{cog_name}: {e}")
+
+        # If any cog failed to reload, the bot is now in a half-deployed state
+        # running new code for some cogs and broken for others. That's worse
+        # than not deploying — reset the working tree to the pre-pull commit
+        # and reload the affected cogs from the old code.
+        if failed and old_sha:
+            _, reset_err, reset_rc = await self._run_git("reset", "--hard", old_sha)
+            still_broken = []
+            for cog_name in cogs_to_reload:
+                ext_key = f"cogs.{cog_name}"
+                if ext_key in self.bot.extensions:
+                    try:
+                        await self.bot.reload_extension(ext_key)
+                    except Exception as e:
+                        still_broken.append(f"{cog_name}: {e}")
+            msg = [
+                f"⚠️ Deploy failed: {'; '.join(failed)}",
+                f"↩️ Rolled back to {old_sha[:8]}",
+            ]
+            if reset_rc != 0:
+                msg.append(f"git reset error: {reset_err}")
+            if still_broken:
+                msg.append(f"Still broken after rollback: {'; '.join(still_broken)}")
+            return "\n".join(msg)
 
         # build summary
         parts = []

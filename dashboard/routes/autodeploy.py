@@ -2,11 +2,12 @@
 """Toggle the autodeploy state from the dashboard (owner-only)."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
+
+import storage
 
 from .. import audit, security
 
@@ -16,19 +17,11 @@ STATE_PATH = Path("json/autodeploy.json")
 
 
 def _load() -> dict:
-    if not STATE_PATH.exists():
-        return {}
-    try:
-        with STATE_PATH.open("r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return {}
+    return storage.read_json(STATE_PATH)
 
 
 def _save(state: dict) -> None:
-    STATE_PATH.parent.mkdir(exist_ok=True)
-    with STATE_PATH.open("w", encoding="utf-8") as f:
-        json.dump(state, f)
+    storage.write_json_atomic(STATE_PATH, state)
 
 
 @router.post("/on")

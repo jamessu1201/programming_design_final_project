@@ -8,15 +8,14 @@
 """
 from __future__ import annotations
 
-import asyncio
 import datetime
-import json
 import logging
-import os
 
 import discord
 from discord import app_commands
 from discord.ext import commands
+
+import storage
 
 logger = logging.getLogger(__name__)
 
@@ -30,17 +29,11 @@ MAX_ITEMS = 100  # 單一 queue 上限，防濫用
 # ── 持久化（純函式，方便測試） ──
 
 def _load() -> dict:
-    try:
-        with open(QUEUES_JSON, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return {}
+    return storage.read_json(QUEUES_JSON)
 
 
 def _save(data: dict) -> None:
-    os.makedirs(os.path.dirname(QUEUES_JSON), exist_ok=True)
-    with open(QUEUES_JSON, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False)
+    storage.write_json_atomic(QUEUES_JSON, data)
 
 
 # ── queue 核心邏輯（純函式，operate on passed dict） ──
@@ -121,7 +114,7 @@ def _now() -> str:
 class Queue(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self._lock = asyncio.Lock()
+        self._lock = storage.lock_for(QUEUES_JSON)
 
     group = app_commands.Group(name="queue", description="排隊系統", guild_only=True)
 

@@ -13,6 +13,8 @@ import sys
 sys.path.append(os.path.abspath(".."))
 from leetcode import main as leetcode_main, get_link, get_description, get_upcoming_contests
 
+import storage
+
 logger = logging.getLogger(__name__)
 
 UTC_PLUS_8 = datetime.timezone(datetime.timedelta(hours=8))
@@ -24,20 +26,12 @@ AUTO_TASK_NAMES = ("leetcode", "happy_birthday", "lol_reminder", "contest_check"
 
 
 def _load_auto_task_state() -> dict:
-    if not AUTO_TASKS_PATH.exists():
-        return {n: True for n in AUTO_TASK_NAMES}
-    try:
-        with AUTO_TASKS_PATH.open("r", encoding="utf-8") as f:
-            data = json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return {n: True for n in AUTO_TASK_NAMES}
+    data = storage.read_json(AUTO_TASKS_PATH)
     return {n: bool(data.get(n, True)) for n in AUTO_TASK_NAMES}
 
 
 def _save_auto_task_state(state: dict) -> None:
-    AUTO_TASKS_PATH.parent.mkdir(exist_ok=True)
-    with AUTO_TASKS_PATH.open("w", encoding="utf-8") as f:
-        json.dump(state, f, ensure_ascii=False)
+    storage.write_json_atomic(AUTO_TASKS_PATH, state)
 
 
 def _chunk_text(text, limit):
