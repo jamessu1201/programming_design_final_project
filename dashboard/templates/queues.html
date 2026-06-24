@@ -12,12 +12,18 @@
   {% if queues %}
     {% for q in queues %}
     <div class="card">
-      <h2>📋 {{ q.name }}（{{ q.items | length }} 人）</h2>
-      {% if q.items %}
+      <h2>📋 {{ q.name }}（{{ q['items'] | length }} 人）</h2>
+      {% if q['auto'] %}
+      <p class="muted">⏳ 自動投票提醒：{{ "開" if q['auto'].enabled else "關" }}
+        · 冷卻 {{ q['auto'].cooldown_days }} 天
+        · 下次可 pop：{{ q['auto'].next_ready }}
+        · 頻道 {{ q['auto'].channel_name }}</p>
+      {% endif %}
+      {% if q['items'] %}
       <table class="data">
         <thead><tr><th>#</th><th>id</th><th>排隊者</th><th>內容</th></tr></thead>
         <tbody>
-          {% for it in q.items %}
+          {% for it in q['items'] %}
           <tr>
             <td>{% if loop.first %}👑 {% endif %}{{ loop.index }}</td>
             <td><code>{{ it.id }}</code></td>

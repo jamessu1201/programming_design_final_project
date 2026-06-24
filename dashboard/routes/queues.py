@@ -33,10 +33,21 @@ async def list_queues(
     bot = request.app.state.bot
     guild = bot.get_guild(guild_id)
     g = _load().get(str(guild_id), {})
-    queues = [
-        {"name": name, "items": q.get("items", [])}
-        for name, q in sorted(g.items())
-    ]
+    queues = []
+    for name, q in sorted(g.items()):
+        auto = q.get("auto")
+        auto_view = None
+        if auto:
+            cid = auto.get("channel_id")
+            chan = bot.get_channel(int(cid)) if cid else None
+            next_ready = auto.get("next_ready")
+            auto_view = {
+                "enabled": auto.get("enabled", False),
+                "cooldown_days": auto.get("cooldown_days", 30),
+                "channel_name": f"#{chan.name}" if chan else (f"#{cid}" if cid else "—"),
+                "next_ready": next_ready.replace("T", " ")[:16] if next_ready else "立即",
+            }
+        queues.append({"name": name, "items": q.get("items", []), "auto": auto_view})
     return request.app.state.templates.TemplateResponse(
         request,
         "queues.html",
