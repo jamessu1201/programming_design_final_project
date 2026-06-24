@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import datetime
 import logging
+from typing import Optional
 
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 import storage
 
@@ -24,6 +25,10 @@ QUEUES_JSON = "json/queues.json"
 MAX_NAME = 50
 MAX_CONTENT = 500
 MAX_ITEMS = 100  # 單一 queue 上限，防濫用
+
+TZ = datetime.timezone(datetime.timedelta(hours=8))
+DEFAULT_COOLDOWN_DAYS = 30  # 預設冷卻一個月
+FIRE_HOUR = 12  # 用 /queue setnext 只給日期時，預設當天中午（UTC+8）
 
 
 # ── 持久化（純函式，方便測試） ──
@@ -46,6 +51,9 @@ def _cleanup_if_empty(data: dict, guild_id, name: str) -> None:
     gid = str(guild_id)
     g = data.get(gid)
     if g and name in g and not g[name]["items"]:
+        # 有自動冷卻設定的 queue 即使空了也保留，否則冷卻設定會被刪掉。
+        if g[name].get("auto"):
+            return
         del g[name]
         if not g:
             del data[gid]
@@ -95,6 +103,20 @@ def _take(data: dict, guild_id, name, item_id, user_id):
     return "notfound", None
 
 
+def _auto_summary(q: dict) -> str:
+    """有 auto 設定時回傳一行摘要字串，否則回空字串。"""
+    auto = q.get("auto")
+    if not auto:
+        return ""
+    cooldown = auto.get("cooldown_days", DEFAULT_COOLDOWN_DAYS)
+    nr = _parse_iso(auto.get("next_ready"))
+    when = nr.strftime("%Y-%m-%d %H:%M") if nr else "立即"
+    state = "開" if auto.get("enabled") else "關"
+    cid = auto.get("channel_id")
+    chan = f" · 頻道 <#{cid}>" if cid else ""
+    return f"自動提醒：{state} · 冷卻 {cooldown} 天 · 下次可 pop：{when}{chan}"
+
+
 def _pop(data: dict, guild_id, name):
     """移除隊頭（任何人都可以）。回傳被移除項目，空/不存在回 None。"""
     q = _get_queue(data, guild_id, name)
@@ -109,14 +131,100 @@ def _now() -> str:
     return datetime.datetime.now().isoformat(timespec="seconds")
 
 
+def _now_tz() -> datetime.datetime:
+    return datetime.datetime.now(TZ)
+
+
+def _parse_iso(ts: Optional[str]) -> Optional[datetime.datetime]:
+    """解析 next_ready；None/壞值回 None（= 立即可 pop）。"""
+    if not ts:
+        return None
+    try:
+        dt = datetime.datetime.fromisoformat(ts)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=TZ)
+        return dt
+    except ValueError:
+        return None
+
+
 # ── Cog ──
 
 class Queue(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._lock = storage.lock_for(QUEUES_JSON)
+        self.tick.start()
+
+    def cog_unload(self):
+        self.tick.cancel()
 
     group = app_commands.Group(name="queue", description="排隊系統", guild_only=True)
+
+    # ── 冷卻期自動 pop 背景任務 ──
+
+    @tasks.loop(seconds=60)
+    async def tick(self):
+        # 整圈持鎖，避免和指令的 read-modify-write 互踩（比照 scheduled.py）。
+        async with self._lock:
+            await self._fire_due()
+
+    async def _fire_due(self):
+        now = _now_tz()
+        data = _load()
+        dirty = False
+
+        for guild_id_str, queues in list(data.items()):
+            for name, q in list(queues.items()):
+                auto = q.get("auto")
+                if not auto or not auto.get("enabled"):
+                    continue
+                channel_id = auto.get("channel_id")
+                if not channel_id:
+                    continue
+                if not q["items"]:
+                    continue
+                next_ready = _parse_iso(auto.get("next_ready"))
+                if next_ready is not None and now < next_ready:
+                    continue
+
+                # 到期：pop 隊頭並 tag 邀請人。
+                head = _pop(data, guild_id_str, name)
+                if head is None:
+                    continue
+
+                cooldown = int(auto.get("cooldown_days", DEFAULT_COOLDOWN_DAYS))
+                auto["next_ready"] = (now + datetime.timedelta(days=cooldown)).isoformat()
+                dirty = True
+
+                inviter = head["user_id"]
+                try:
+                    channel = self.bot.get_channel(int(channel_id)) or \
+                        await self.bot.fetch_channel(int(channel_id))
+                except Exception as e:
+                    logger.warning("queue auto-pop: 取不到頻道 %s：%s", channel_id, e)
+                    continue
+                try:
+                    await channel.send(
+                        f"🔔 <@{inviter}> 冷卻期已滿，輪到你邀請的人了，請開投票！\n"
+                        f"👤 {head['content']}",
+                        allowed_mentions=discord.AllowedMentions(
+                            everyone=False, roles=False,
+                            users=[discord.Object(id=int(inviter))]),
+                    )
+                    logger.info(
+                        "queue auto-pop: guild=%s queue=%s -> #%s tag=%s",
+                        guild_id_str, name, getattr(channel, "name", channel_id), inviter,
+                    )
+                except discord.HTTPException as e:
+                    logger.error("queue auto-pop send failed: %s", e)
+
+        if dirty:
+            _save(data)
+
+    @tick.before_loop
+    async def before_tick(self):
+        await self.bot.wait_until_ready()
 
     # --- 共用 autocomplete 邏輯 ---
 
@@ -214,6 +322,9 @@ class Queue(commands.Cog):
             description=body,
             color=discord.Color.blurple(),
         )
+        auto_line = _auto_summary(q)
+        if auto_line:
+            embed.add_field(name="⏳ 自動投票提醒", value=auto_line, inline=False)
         await interaction.response.send_message(
             embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
@@ -233,9 +344,11 @@ class Queue(commands.Cog):
             return await interaction.response.send_message(
                 f"**{name}** 是空的或不存在。", ephemeral=True)
         head = q["items"][0]
+        auto_line = _auto_summary(q)
+        suffix = f"\n⏳ {auto_line}" if auto_line else ""
         await interaction.response.send_message(
             f"👑 **{name}** 隊頭：`#{head['id']}` {head['user_name']}：{head['content']}"
-            f"（後面還有 {len(q['items']) - 1} 人）",
+            f"（後面還有 {len(q['items']) - 1} 人）{suffix}",
             allowed_mentions=discord.AllowedMentions.none(),
         )
 
@@ -300,10 +413,19 @@ class Queue(commands.Cog):
     @app_commands.describe(name="queue 名稱")
     async def pop(self, interaction: discord.Interaction, name: str):
         name = name.strip()
+        cooldown_note = ""
         async with self._lock:
             data = _load()
             removed = _pop(data, interaction.guild_id, name)
             if removed is not None:
+                # 手動 pop 一個自動 queue 時，也要重置冷卻，維持一致。
+                q = _get_queue(data, interaction.guild_id, name)
+                auto = q.get("auto") if q else None
+                if auto and auto.get("enabled"):
+                    cooldown = int(auto.get("cooldown_days", DEFAULT_COOLDOWN_DAYS))
+                    nr = _now_tz() + datetime.timedelta(days=cooldown)
+                    auto["next_ready"] = nr.isoformat()
+                    cooldown_note = f"\n⏳ 冷卻 {cooldown} 天，下次可 pop：{nr.strftime('%Y-%m-%d %H:%M')}"
                 _save(data)
 
         if removed is None:
@@ -311,7 +433,7 @@ class Queue(commands.Cog):
                 f"**{name}** 是空的或不存在。", ephemeral=True)
         await interaction.response.send_message(
             f"✅ 已處理 **{name}** 隊頭：`#{removed['id']}` "
-            f"{removed['user_name']}：{removed['content']}",
+            f"{removed['user_name']}：{removed['content']}{cooldown_note}",
             allowed_mentions=discord.AllowedMentions.none(),
         )
 
@@ -347,6 +469,118 @@ class Queue(commands.Cog):
 
     @clear.autocomplete("name")
     async def _clear_name_ac(self, interaction: discord.Interaction, current: str):
+        return self._name_choices(interaction.guild_id, current)
+
+    # --- 自動投票提醒（冷卻期 + 到期自動 pop + tag 邀請人） ---
+
+    async def _require_manager(self, interaction: discord.Interaction) -> bool:
+        is_owner = await self.bot.is_owner(interaction.user)
+        perms = getattr(interaction.user, "guild_permissions", None)
+        if is_owner or (perms and perms.manage_guild):
+            return True
+        await interaction.response.send_message(
+            "只有管理員（管理伺服器權限）或 bot owner 能設定自動提醒。", ephemeral=True)
+        return False
+
+    @group.command(name="setup", description="開啟某 queue 的冷卻期自動投票提醒")
+    @app_commands.describe(
+        name="queue 名稱（不存在會自動建立）",
+        cooldown_days=f"冷卻幾天（預設 {DEFAULT_COOLDOWN_DAYS}）",
+        channel="提醒要發到哪個頻道（預設目前頻道）",
+    )
+    async def setup(self, interaction: discord.Interaction, name: str,
+                    cooldown_days: Optional[int] = None,
+                    channel: Optional[discord.TextChannel] = None):
+        name = name.strip()
+        if not name:
+            return await interaction.response.send_message("queue 名稱不可空白。", ephemeral=True)
+        if not await self._require_manager(interaction):
+            return
+        cooldown = DEFAULT_COOLDOWN_DAYS if cooldown_days is None else cooldown_days
+        if cooldown < 0 or cooldown > 365:
+            return await interaction.response.send_message(
+                "冷卻天數請介於 0～365。", ephemeral=True)
+        channel_id = (channel or interaction.channel).id
+
+        async with self._lock:
+            data = _load()
+            g = data.setdefault(str(interaction.guild_id), {})
+            q = g.get(name)
+            if q is None:
+                q = {"next_id": 1, "items": []}
+                g[name] = q
+            auto = q.setdefault("auto", {})
+            auto["enabled"] = True
+            auto["cooldown_days"] = cooldown
+            auto["channel_id"] = channel_id
+            auto.setdefault("next_ready", None)  # None = 第一個立即可 pop
+            _save(data)
+
+        await interaction.response.send_message(
+            f"✅ **{name}** 已開啟自動投票提醒：冷卻 **{cooldown}** 天，"
+            f"提醒發到 <#{channel_id}>。隊頭到期會自動 pop 並 tag 邀請人。\n"
+            f"（要對齊已發生的投票，用 `/queue setnext` 設下次可 pop 日期）",
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+
+    @setup.autocomplete("name")
+    async def _setup_name_ac(self, interaction: discord.Interaction, current: str):
+        return self._name_choices(interaction.guild_id, current)
+
+    @group.command(name="setnext", description="手動設某 queue「下次可 pop 日期」")
+    @app_commands.describe(name="queue 名稱", date="日期 YYYY-MM-DD（當天中午觸發）")
+    async def setnext(self, interaction: discord.Interaction, name: str, date: str):
+        name = name.strip()
+        if not await self._require_manager(interaction):
+            return
+        try:
+            d = datetime.date.fromisoformat(date.strip())
+        except ValueError:
+            return await interaction.response.send_message(
+                "日期格式請用 `YYYY-MM-DD`，例如 `2026-07-06`。", ephemeral=True)
+        nr = datetime.datetime(d.year, d.month, d.day, FIRE_HOUR, tzinfo=TZ)
+
+        async with self._lock:
+            data = _load()
+            q = _get_queue(data, interaction.guild_id, name)
+            if not q or not q.get("auto"):
+                return await interaction.response.send_message(
+                    f"**{name}** 還沒開啟自動提醒，先用 `/queue setup`。", ephemeral=True)
+            q["auto"]["next_ready"] = nr.isoformat()
+            _save(data)
+
+        await interaction.response.send_message(
+            f"✅ **{name}** 下次可 pop 日期設為 **{nr.strftime('%Y-%m-%d %H:%M')}**。",
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+
+    @setnext.autocomplete("name")
+    async def _setnext_name_ac(self, interaction: discord.Interaction, current: str):
+        return self._name_choices(interaction.guild_id, current)
+
+    @group.command(name="autooff", description="關閉某 queue 的自動投票提醒（變回純手動）")
+    @app_commands.describe(name="queue 名稱")
+    async def autooff(self, interaction: discord.Interaction, name: str):
+        name = name.strip()
+        if not await self._require_manager(interaction):
+            return
+        async with self._lock:
+            data = _load()
+            q = _get_queue(data, interaction.guild_id, name)
+            if not q or not q.get("auto"):
+                return await interaction.response.send_message(
+                    f"**{name}** 沒有開啟自動提醒。", ephemeral=True)
+            q.pop("auto", None)
+            _cleanup_if_empty(data, interaction.guild_id, name)
+            _save(data)
+
+        await interaction.response.send_message(
+            f"🛑 已關閉 **{name}** 的自動投票提醒，變回純手動 queue。",
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+
+    @autooff.autocomplete("name")
+    async def _autooff_name_ac(self, interaction: discord.Interaction, current: str):
         return self._name_choices(interaction.guild_id, current)
 
     # --- 統一錯誤處理 ---
