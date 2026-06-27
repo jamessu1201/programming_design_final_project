@@ -10,6 +10,7 @@ base_url / 模型名稱等非機密設定放 config.yaml 的 `llm:` 區塊。
 """
 from __future__ import annotations
 
+import asyncio
 import collections
 import datetime
 import logging
@@ -68,6 +69,10 @@ class LLM(commands.Cog):
         self.history_turns = int(cfg.get("history_turns", 6))
         self.history_ttl = datetime.timedelta(minutes=int(cfg.get("history_ttl_minutes", 30)))
         self.system_prompt = cfg.get("system_prompt", "")
+        # 機器人互聊（bot ↔ bot）只開放在這個頻道，且要節流 + 上限防爆 token。
+        self.botchat_channel = int(cfg.get("botchat_channel_id", 0)) or None
+        self.botchat_delay = float(cfg.get("botchat_delay_seconds", 4))
+        self.botchat_max_turns = int(cfg.get("botchat_max_turns", 40))
         self.api_key = _load_key()
         if not self.api_key:
             logger.warning("LLM: no API key (set %s env or %s); commands will report unconfigured.",
@@ -75,6 +80,8 @@ class LLM(commands.Cog):
         self._client = httpx.AsyncClient(timeout=httpx.Timeout(60.0))
         # (channel_id, user_id) -> deque[{"role","content","ts"}]
         self._mem: dict[tuple[int, int], collections.deque] = {}
+        # channel_id -> {"partner": int, "turns": int, "max": int}（進行中的機器人互聊）
+        self._botchat: dict[int, dict] = {}
 
     def cog_unload(self):
         # 關掉 httpx client（背景排程關閉，不阻塞）。
@@ -188,20 +195,77 @@ class LLM(commands.Cog):
         self._mem.pop((interaction.channel_id, interaction.user.id), None)
         await interaction.response.send_message("🧽 已清除你在這個頻道的對話記憶。", ephemeral=True)
 
+    # ── 機器人互聊（只限定頻道、有節流與上限） ──
+
+    @app_commands.command(name="botchat",
+                          description="讓我跟另一隻機器人在指定頻道互相聊天（用 /stopchat 喊停）")
+    @app_commands.describe(對象="要對聊的另一隻機器人", 開場="可選：開場白／聊天主題",
+                           輪數="可選：最多回幾輪後自動停（防爆 token，預設看設定）")
+    @app_commands.guild_only()
+    async def botchat(self, interaction: discord.Interaction, 對象: discord.Member,
+                      開場: Optional[str] = None, 輪數: Optional[int] = None):
+        perms = getattr(interaction.user, "guild_permissions", None)
+        is_owner = await self.bot.is_owner(interaction.user)
+        if not is_owner and not (perms and perms.manage_guild):
+            return await interaction.response.send_message(
+                "只有管理員能開機器人對話（會一直呼叫 AI）。", ephemeral=True)
+        if not self.api_key or not self.base_url:
+            return await interaction.response.send_message("AI 還沒設定好。", ephemeral=True)
+        if self.botchat_channel and interaction.channel_id != self.botchat_channel:
+            return await interaction.response.send_message(
+                f"機器人對話只能在 <#{self.botchat_channel}> 開。", ephemeral=True)
+        if not 對象.bot:
+            return await interaction.response.send_message("對象要選一隻機器人。", ephemeral=True)
+        if 對象.id == self.bot.user.id:
+            return await interaction.response.send_message("不能跟我自己聊…", ephemeral=True)
+
+        max_turns = self.botchat_max_turns if 輪數 is None else max(1, min(輪數, 200))
+        self._botchat[interaction.channel_id] = {"partner": 對象.id, "turns": 0, "max": max_turns}
+        opening = (開場 or "嗨，我們來聊聊吧！").strip()
+        await interaction.response.send_message(
+            f"{對象.mention} {opening}",
+            allowed_mentions=discord.AllowedMentions(everyone=False, roles=False, users=[對象]),
+        )
+
+    @app_commands.command(name="stopchat", description="停止這個頻道的機器人互聊")
+    @app_commands.guild_only()
+    async def stopchat(self, interaction: discord.Interaction):
+        # 任何人都能喊停（安全：誰都能拔插頭）。
+        if self._botchat.pop(interaction.channel_id, None):
+            await interaction.response.send_message("🛑 已停止這個頻道的機器人對話。")
+        else:
+            await interaction.response.send_message(
+                "這個頻道沒有在進行機器人對話。", ephemeral=True)
+
     # ── @機器人 觸發 ──
 
     @commands.Cog.listener("on_message")
     async def on_mention(self, message: discord.Message):
-        if message.author.bot or not self.bot.user:
-            return
+        if not self.bot.user or message.author.id == self.bot.user.id:
+            return  # 永不回自己（否則秒進無限自我迴圈）
         if self.bot.user not in message.mentions or message.mention_everyone:
             return
         if not self.api_key or not self.base_url:
             return
-        # 去掉對機器人的 mention，留下實際問題。
+
+        is_bot = message.author.bot
+        if is_bot:
+            # 其他機器人：只有指定頻道開了 /botchat、且對到指定對象才回。
+            session = self._botchat.get(message.channel.id)
+            if not session or (session["partner"] and message.author.id != session["partner"]):
+                return
+            if session["turns"] >= session["max"]:
+                self._botchat.pop(message.channel.id, None)
+                return await message.channel.send(
+                    f"🛑 機器人對話已達上限（{session['max']} 輪）自動停止。要再開用 `/botchat`。")
+            session["turns"] += 1
+            await asyncio.sleep(self.botchat_delay)  # 節流：別讓兩隻 bot 瞬間洗版／燒 token
+
         prompt = re.sub(rf"<@!?{self.bot.user.id}>", "", message.content).strip()
         image_url = self._first_image(message.attachments)
         if not prompt and not image_url:
+            if is_bot:
+                return
             return await message.reply("你想問什麼？（也可以附一張圖）",
                                        allowed_mentions=discord.AllowedMentions.none())
 
@@ -211,13 +275,24 @@ class LLM(commands.Cog):
                 reply = await self._answer(key, prompt, image_url)
         except Exception as e:
             logger.error("LLM mention failed: %s", e)
+            if is_bot:
+                self._botchat.pop(message.channel.id, None)  # 出錯就停掉迴圈，別卡死
+                return await message.channel.send(f"🛑 呼叫 AI 失敗，已停止機器人對話：{e}")
             return await message.reply(f"呼叫 AI 失敗：{e}",
                                        allowed_mentions=discord.AllowedMentions.none())
         if not reply:
+            if is_bot:
+                return
             return await message.reply("（AI 沒有回應內容）",
                                        allowed_mentions=discord.AllowedMentions.none())
+
+        # 回給機器人時要 mention 對方，迴圈才接得下去；回人類則不 ping。
+        if is_bot:
+            am = discord.AllowedMentions(everyone=False, roles=False, users=[message.author])
+        else:
+            am = discord.AllowedMentions.none()
         chunks = _split_chunks(reply)
-        await message.reply(chunks[0], allowed_mentions=discord.AllowedMentions.none())
+        await message.reply(chunks[0], mention_author=is_bot, allowed_mentions=am)
         for c in chunks[1:]:
             await message.channel.send(c, allowed_mentions=discord.AllowedMentions.none())
 
