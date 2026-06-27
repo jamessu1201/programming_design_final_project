@@ -35,3 +35,6 @@ llm:
   botchat_channel_id: 1520437840977330256
   botchat_delay_seconds: 4   # 每次回覆前停幾秒（可讀 + 限速）
   botchat_max_turns: 40      # 我方回幾輪後自動停（防忘了喊停）
+  # 工具（function calling）：時間/計算、天氣、網路搜尋、查點數/queue。
+  tools_enabled: true
+  tool_max_rounds: 5         # 一次回答最多幾輪 tool 呼叫，防無限叫工具
