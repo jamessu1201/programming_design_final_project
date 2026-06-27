@@ -12,7 +12,8 @@ A multi-functional Discord bot with music playback, auto-attendance, LeetCode da
 | **Attend** | `!attend` | Auto-attendance for CCU ecourse2 (Playwright + 2Captcha) |
 | **Event** | (automatic) | Keyword-triggered meme responses, bad word filter |
 | **Others** | `!poll`, `!draw`, `!banwords`, `!prefix`, `!count` | Voting, lottery, word filter management, custom prefix |
-| **Queue** | `/queue add`, `/queue list`, `/queue top`, `/queue take`, `/queue pop`, `/queue queues`, `/queue clear` | 多具名排隊系統（slash + autocomplete）：人人可加、隊頭人人可移除、中間/尾端只能拿自己的 |
+| **Queue** | `/queue add`, `/queue list`, `/queue top`, `/queue take`, `/queue pop`, `/queue queues`, `/queue clear`, `/queue setup`, `/queue setnext`, `/queue autooff` | 多具名排隊系統（slash + autocomplete）：人人可加、隊頭人人可移除、中間/尾端只能拿自己的；可開冷卻期，到期自動 pop 並 tag 邀請人開投票 |
+| **LLM** | `/ask`, `/forget`, `/botchat`, `/stopchat` | 接 OpenAI 相容端點：`/ask` 一問一答（可附圖看圖）、@機器人 聊天（短期上下文）、`/botchat` 讓兩隻機器人在指定頻道互聊（節流＋上限），`/stopchat` 喊停 |
 | **Points** | `/points top`, `/points view`, `/points reset` | 屁眼點數活躍度系統（限特定伺服器）：語音每分鐘 +5、訊息每則 +1，看排行榜與個人點數 |
 | **Conversation** | `!sendtext`, `!sendreply`, `!sendprivate` | Remote messaging (owner only) |
 | **Admin** | `!reload`, `!ra`, `!deploy`, `!autodeploy`, `!bye` | Hot-reload, git auto-deploy, shutdown |
