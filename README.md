@@ -74,6 +74,7 @@ mkdir -p api_key private/json
 | `api_key/api.txt` | Holodex API key | For `!hololive` |
 | `private/two_captcha.txt` | 2Captcha API key | For `!attend` |
 | `private/json/account.json` | `{"accounts":["user"],"passwords":["pass"]}` | For `!attend` |
+| `api_key/llm.txt` | OpenAI-compatible LLM API key (or env `llm_api_key`) | For `/ask` & @mention chat |
 
 ### 5. Configuration
 
