@@ -38,6 +38,34 @@ DISCORD_LIMIT = 2000
 IMAGE_TYPES = ("image/png", "image/jpeg", "image/gif", "image/webp")
 TZ = datetime.timezone(datetime.timedelta(hours=8))  # 台灣時間
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+# 有些端點沒開 tool-call parser，Qwen 的工具呼叫會以這種文字形式出現在 content。
+_TOOLCALL_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
+
+
+def _clean_reply(content: str) -> str:
+    """清掉 <think> 與沒被解析掉的 <tool_call> 殘留，再回給使用者。"""
+    content = _THINK_RE.sub("", content or "")
+    content = _TOOLCALL_RE.sub("", content)
+    return content.strip()
+
+
+def _extract_text_tool_calls(content: str) -> list:
+    """從 content 文字裡撈出 <tool_call>{…}</tool_call>，轉成 OpenAI tool_calls 結構。"""
+    calls = []
+    for i, m in enumerate(_TOOLCALL_RE.finditer(content or "")):
+        try:
+            obj = json.loads(m.group(1))
+        except json.JSONDecodeError:
+            continue
+        name = obj.get("name")
+        if not name:
+            continue
+        args = obj.get("arguments", {})
+        if not isinstance(args, str):
+            args = json.dumps(args, ensure_ascii=False)
+        calls.append({"id": f"call_{i}", "type": "function",
+                      "function": {"name": name, "arguments": args}})
+    return calls
 
 # 工具會讀到的既有資料檔（與對應 cog 同路徑）。
 POINTS_JSON = "json/points.json"
@@ -212,7 +240,7 @@ class LLM(commands.Cog):
         resp.raise_for_status()
         data = resp.json()
         content = (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
-        return _THINK_RE.sub("", content).strip()
+        return _clean_reply(content)
 
     async def _chat_with_tools(self, messages: list[dict], model: str, ctx: dict) -> str:
         """tool-calling 迴圈：模型要工具 → 執行 → 回灌結果 → 再問，直到給出答案或到上限。"""
@@ -225,11 +253,15 @@ class LLM(commands.Cog):
             )
             resp.raise_for_status()
             msg = (resp.json().get("choices") or [{}])[0].get("message", {})
+            content = msg.get("content") or ""
             tool_calls = msg.get("tool_calls")
             if not tool_calls:
-                return _THINK_RE.sub("", msg.get("content") or "").strip()
+                # 端點沒把 <tool_call> 解析成結構欄位時，自己從文字撈出來。
+                tool_calls = _extract_text_tool_calls(content)
+            if not tool_calls:
+                return _clean_reply(content)
             # 必須把帶 tool_calls 的 assistant 訊息原樣放回，下一輪才接得上。
-            messages.append({"role": "assistant", "content": msg.get("content") or "",
+            messages.append({"role": "assistant", "content": _TOOLCALL_RE.sub("", content).strip(),
                              "tool_calls": tool_calls})
             for tc in tool_calls:
                 fn = tc.get("function", {})
@@ -258,7 +290,8 @@ class LLM(commands.Cog):
                 return self._tool_points(ctx, args.get("user"), args.get("top_n", 10))
             if name == "list_queue":
                 return self._tool_queue(ctx, args.get("name"))
-            return f"未知工具：{name}"
+            valid = ", ".join(t["function"]["name"] for t in TOOLS_SCHEMA)
+            return f"沒有「{name}」這個工具，別亂叫。可用的只有：{valid}。"
         except Exception as e:
             logger.error("LLM tool %s failed: %s", name, e)
             return f"工具 {name} 執行失敗：{e}"
