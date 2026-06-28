@@ -1,0 +1,10 @@
+[Unit]
+Description=Run dcbot autodeploy every few minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=3min
+Unit=dcbot-autodeploy.service
+
+[Install]
+WantedBy=timers.target
