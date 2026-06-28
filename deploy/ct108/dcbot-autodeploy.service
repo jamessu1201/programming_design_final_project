@@ -1,9 +1,0 @@
-[Unit]
-Description=dcbot autodeploy (pull origin/main, rebuild + restart on change)
-After=network-online.target docker.service
-Wants=network-online.target
-
-[Service]
-Type=oneshot
-# bash invocation so the script needs no +x bit; it self-updates via git pull.
-ExecStart=/bin/bash /root/dcbot/deploy/ct108/autodeploy.sh
