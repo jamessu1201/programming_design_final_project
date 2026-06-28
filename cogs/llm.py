@@ -197,7 +197,9 @@ class LLM(commands.Cog):
         if not self.api_key:
             logger.warning("LLM: no API key (set %s env or %s); commands will report unconfigured.",
                            KEY_ENV, KEY_FILE)
-        self._client = httpx.AsyncClient(timeout=httpx.Timeout(60.0))
+        # 讀 timeout 要夠長:max_tokens=2048 的長回覆在 qwen3-30b 上實測 ~68s,
+        # 60s 會 ReadTimeout(其 str() 為空 → 使用者看到「呼叫 AI 失敗」)。connect 短一點即可。
+        self._client = httpx.AsyncClient(timeout=httpx.Timeout(180.0, connect=10.0))
         # (channel_id, user_id) -> deque[{"role","content","ts"}]
         self._mem: dict[tuple[int, int], collections.deque] = {}
         # channel_id -> {"partner": int, "turns": int, "max": int}（進行中的機器人互聊）
