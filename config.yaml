@@ -27,10 +27,10 @@ llm:
   base_url: https://api.jamessu1201.com/v1
   text_model: qwen3-30b
   vision_model: qwen3.5-4b   # 多模態，看圖
-  max_tokens: 1024
+  max_tokens: 2048           # 太小會把長回覆/教學截斷（「話沒講完」）
   history_turns: 6           # 短期上下文：每人每頻道保留幾輪
   history_ttl_minutes: 30    # 超過這時間沒講話就清掉上下文
-  system_prompt: "你是 james and michael 的萬能機器人，請用繁體中文簡潔回答。"
+  system_prompt: "你是 james and michael 的萬能機器人，請用繁體中文回答。只有在需要即時資訊（天氣、網路搜尋）、做計算、或查本伺服器點數/queue 時才呼叫工具；單純回答、接續或補完先前的說明時，直接寫文字，不要呼叫工具。工具清單以外的功能並不存在，不要假裝呼叫工具。"
   # 機器人互聊（/botchat）：只開放這個頻道，並節流 + 設上限避免燒爆 token。
   botchat_channel_id: 1520437840977330256
   botchat_delay_seconds: 4   # 每次回覆前停幾秒（可讀 + 限速）
