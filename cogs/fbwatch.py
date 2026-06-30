@@ -13,11 +13,14 @@ CT108 上的 `fb-watcher` 容器偵測到 FB 社團新貼文時，會用 Discord
 from __future__ import annotations
 
 import logging
+import os
 
 import discord
+import httpx
 from discord import app_commands
 from discord.ext import commands
 
+import notify
 import storage
 
 logger = logging.getLogger(__name__)
@@ -73,6 +76,24 @@ def _match(subs: dict, haystack_low: str) -> dict:
     return matched
 
 
+# ── ntfy 設定 ──
+
+NTFY_TOKEN_ENV = "ntfy_token"
+NTFY_TOKEN_FILE = "api_key/ntfy.txt"
+
+
+def _load_ntfy_token() -> str | None:
+    """ntfy auth token：環境變數優先，否則讀 api_key/ntfy.txt（仿 cogs/llm.py:_load_key）。"""
+    tok = os.environ.get(NTFY_TOKEN_ENV)
+    if tok:
+        return tok.strip()
+    try:
+        with open(NTFY_TOKEN_FILE, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return None
+
+
 # ── Cog ──
 
 class FbWatch(commands.Cog):
@@ -81,6 +102,19 @@ class FbWatch(commands.Cog):
         self._lock = storage.lock_for(FB_WATCH_JSON)
         # 只有本 cog 會寫這個檔，記憶體快取一份避免每則訊息都讀檔。
         self.data = _load()
+
+        # ntfy 手機推播設定（config.yaml 的 ntfy: 區塊）。沒設就只發 DM。
+        cfg = (getattr(bot, "config", None) or {}).get("ntfy", {}) or {}
+        self.ntfy_base = (cfg.get("base_url") or "").rstrip("/")
+        self.ntfy_topics = {str(k): v for k, v in (cfg.get("user_topics") or {}).items()}
+        self.ntfy_priority = cfg.get("priority") or None
+        self.ntfy_token = _load_ntfy_token()
+        # 重用一個 client，避免每則貼文都開新連線。
+        self._http = httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=5.0))
+
+    def cog_unload(self):
+        # 關掉 httpx client（背景排程關閉，不阻塞）。
+        self.bot.loop.create_task(self._http.aclose())
 
     # --- slash 指令 ---
 
@@ -183,6 +217,22 @@ class FbWatch(commands.Cog):
             lines.append(f"📘 原貼文：{permalink}")
         return "\n".join(lines)
 
+    async def _push_ntfy(self, uid: str, message: discord.Message, hits: list, permalink) -> None:
+        """命中關鍵字時，對有設定 topic 的人推 ntfy 到手機。沒設就跳過。"""
+        topic = self.ntfy_topics.get(uid)
+        if not topic or not self.ntfy_base:
+            return
+        await notify.push(
+            f"{self.ntfy_base}/{topic}",
+            self._build_dm(message, hits, permalink),
+            title="fb-watcher alert",          # ASCII（避免中文 header）
+            tags="bell",
+            priority=self.ntfy_priority,
+            click=permalink or message.jump_url,
+            client=self._http,
+            token=self.ntfy_token,
+        )
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         channel_id = self.data.get("channel_id")
@@ -212,6 +262,8 @@ class FbWatch(commands.Cog):
                 failed.append(uid)
             except discord.HTTPException:
                 logger.exception("fbwatch: 私訊 %s 失敗", uid)
+            # DM 之外，若該人有設 ntfy topic，再推一份到手機（DM 成敗都推、best-effort）。
+            await self._push_ntfy(uid, message, hits, permalink)
 
         if failed:
             mentions = " ".join(f"<@{u}>" for u in failed)

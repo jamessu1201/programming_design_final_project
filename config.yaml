@@ -39,3 +39,13 @@ llm:
   # 工具（function calling）：時間/計算、天氣、網路搜尋、查點數/queue。
   tools_enabled: true
   tool_max_rounds: 5         # 一次回答最多幾輪 tool 呼叫，防無限叫工具
+
+# ntfy 手機推播（fbwatch 關鍵字命中時，除了 Discord DM 再推一份到手機）。
+# server 走 Tailscale、無帳號（難猜 topic 防猜）。手機 ntfy app 訂閱 base_url/<topic>。
+# user_topics：Discord uid（字串）→ 該人專屬 topic；沒列到的人維持只收 DM。
+ntfy:
+  base_url: http://192.168.0.237:8090    # CT108 既有 ntfy（與 moneybank 共用）
+  user_topics:
+    "840936403000229909": dcbot-fbwatch-k7m2qx9w3p
+  priority: high
+  # token: ""   # 之後 ntfy 若加驗證再用；放 api_key/ntfy.txt 或環境變數 ntfy_token，不寫這裡
