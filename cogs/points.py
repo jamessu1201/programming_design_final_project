@@ -18,7 +18,7 @@ import storage
 logger = logging.getLogger(__name__)
 
 TARGET_GUILD = 960893399014211614
-VOICE_POINTS_PER_MIN = 5
+VOICE_POINTS_PER_MIN = 1
 MSG_POINTS = 1
 POINTS_JSON = "json/points.json"
 
@@ -66,6 +66,72 @@ def _leaderboard(data: dict, guild_id):
     """回傳依點數由高到低排序的 [(user_id, record), ...]。"""
     g = data.get(str(guild_id), {})
     return sorted(g.items(), key=lambda kv: kv[1]["points"], reverse=True)
+
+
+# ── 排行榜分頁器 ──
+
+class LeaderboardView(discord.ui.View):
+    """屁眼點數排行榜的 ◀▶ 翻頁（模仿 others.py 的 PollView）。只有下指令的人能翻。"""
+
+    PER_PAGE = LEADERBOARD_SIZE
+
+    def __init__(self, board, invoker_id: int):
+        super().__init__(timeout=120)
+        self.board = board
+        self.invoker_id = invoker_id
+        self.page = 0
+        self.total_pages = max(1, (len(board) + self.PER_PAGE - 1) // self.PER_PAGE)
+        self.message = None
+        self._sync_buttons()
+
+    def _sync_buttons(self):
+        self.prev_page.disabled = self.page <= 0
+        self.next_page.disabled = self.page >= self.total_pages - 1
+
+    def _build_embed(self) -> discord.Embed:
+        start = self.page * self.PER_PAGE
+        lines = []
+        for rank, (uid, rec) in enumerate(self.board[start:start + self.PER_PAGE], start=start + 1):
+            tag = MEDALS.get(rank, f"**{rank}.**")
+            lines.append(
+                f"{tag} <@{uid}> — **{rec['points']}** 點"
+                f"（🎙️{rec['voice_min']} 分 / 💬{rec['messages']} 則）"
+            )
+        embed = discord.Embed(
+            title="🍑 屁眼點數排行榜",
+            description="\n".join(lines),
+            color=discord.Color.gold(),
+        )
+        embed.set_footer(text=f"第 {self.page + 1}/{self.total_pages} 頁 · 共 {len(self.board)} 人")
+        return embed
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.invoker_id:
+            await interaction.response.send_message(
+                "只有使用指令的人可以翻頁，你可以自己用 `/points top`。", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(emoji="◀", style=discord.ButtonStyle.secondary)
+    async def prev_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.page = max(0, self.page - 1)
+        self._sync_buttons()
+        await interaction.response.edit_message(embed=self._build_embed(), view=self)
+
+    @discord.ui.button(emoji="▶", style=discord.ButtonStyle.secondary)
+    async def next_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.page = min(self.total_pages - 1, self.page + 1)
+        self._sync_buttons()
+        await interaction.response.edit_message(embed=self._build_embed(), view=self)
+
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        if self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except discord.HTTPException:
+                pass
 
 
 # ── Cog ──
@@ -149,23 +215,14 @@ class Points(commands.Cog):
             return await interaction.response.send_message(
                 "目前還沒有人有屁眼點數，快去語音或聊天吧。", ephemeral=True)
 
-        lines = []
-        for rank, (uid, rec) in enumerate(board[:LEADERBOARD_SIZE], start=1):
-            tag = MEDALS.get(rank, f"**{rank}.**")
-            lines.append(
-                f"{tag} <@{uid}> — **{rec['points']}** 點"
-                f"（🎙️{rec['voice_min']} 分 / 💬{rec['messages']} 則）"
-            )
-        embed = discord.Embed(
-            title="🍑 屁眼點數排行榜",
-            description="\n".join(lines),
-            color=discord.Color.gold(),
-        )
-        total = len(board)
-        if total > LEADERBOARD_SIZE:
-            embed.set_footer(text=f"共 {total} 人上榜，只顯示前 {LEADERBOARD_SIZE} 名")
+        view = LeaderboardView(board, interaction.user.id)
+        embed = view._build_embed()
+        if view.total_pages == 1:
+            return await interaction.response.send_message(
+                embed=embed, allowed_mentions=discord.AllowedMentions.none())
         await interaction.response.send_message(
-            embed=embed, allowed_mentions=discord.AllowedMentions.none())
+            embed=embed, view=view, allowed_mentions=discord.AllowedMentions.none())
+        view.message = await interaction.original_response()
 
     @group.command(name="view", description="看自己或某人的屁眼點數")
     @app_commands.describe(user="要查誰（不填就是自己）")
@@ -222,6 +279,31 @@ class Points(commands.Cog):
                     msg = f"{user.display_name} 本來就沒有點數。"
         await interaction.response.send_message(
             msg, allowed_mentions=discord.AllowedMentions.none())
+
+    @group.command(
+        name="recompute",
+        description="用目前費率重算所有人的點數（限 bot owner）")
+    async def recompute(self, interaction: discord.Interaction):
+        if not await self._guard(interaction):
+            return
+        if not await self.bot.is_owner(interaction.user):
+            return await interaction.response.send_message(
+                "只有 bot owner 能重算點數。", ephemeral=True)
+
+        async with self._lock:
+            data = _load()
+            g = data.get(str(interaction.guild_id), {})
+            for rec in g.values():
+                rec["points"] = (rec.get("voice_min", 0) * VOICE_POINTS_PER_MIN
+                                 + rec.get("messages", 0) * MSG_POINTS)
+            if g:
+                _save(data)
+            count = len(g)
+
+        await interaction.response.send_message(
+            f"🧮 已用「語音 {VOICE_POINTS_PER_MIN} 點/分 + 訊息 {MSG_POINTS} 點/則」"
+            f"重算 {count} 人的點數。",
+            allowed_mentions=discord.AllowedMentions.none())
 
     # --- 統一錯誤處理 ---
 
