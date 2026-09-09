@@ -6,7 +6,9 @@ api_key/*
 .env
 venv/
 
-cogs/log.py
+# Local / private cogs: dropped in at runtime, never committed.
+cogs_local/
+
 logs/*
 !logs/.gitkeep
 __pycache__/
@@ -18,19 +20,20 @@ __pycache__/
 *.jpg
 /log*
 /less*
-final_project/
+
+# Your own deployment's channel/role IDs, endpoints and tokens.
+# Copy config.example.yaml -> config.yaml and edit that.
+config.yaml
 
 # Dashboard runtime artefacts
 dashboard/audit.jsonl
 
 # Large binaries — use package managers instead
 *.exe
-chrome-win64/
-chrome-linux64/
-chromedriver-linux64/
-driver/
 
-# Data files (pic_database is large; config JSONs are tracked separately)
+# Runtime state written by the bot (per-deployment, often contains user data)
 json/pic_database.json
 json/queues.json
 json/points.json
+json/fb_watch.json
+json/autodeploy.json

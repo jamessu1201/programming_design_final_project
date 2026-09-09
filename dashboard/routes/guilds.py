@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from .. import security
-from cogs.points import TARGET_GUILD
+from cogs import points as points_cog
 
 router = APIRouter()
 
@@ -70,6 +70,8 @@ async def guild_overview(
                 "member_count": guild.member_count,
             },
             "all_guilds": _list_visible_guilds(session, bot),
-            "points_guild_id": TARGET_GUILD,
+            "points_enabled": points_cog.points_enabled(bot, guild.id),
+            "points_name": points_cog.POINTS_NAME,
+            "points_emoji": points_cog.POINTS_EMOJI,
         },
     )

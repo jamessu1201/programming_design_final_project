@@ -28,6 +28,8 @@ from bs4 import BeautifulSoup
 from discord import app_commands
 from discord.ext import commands
 
+from cogs import points as points_cog
+
 import storage
 
 logger = logging.getLogger(__name__)
@@ -108,7 +110,7 @@ TOOLS_SCHEMA = [
     }},
     {"type": "function", "function": {
         "name": "get_points",
-        "description": "查本伺服器的『屁眼點數』：不給 user 看排行榜，給 user 看某人點數。",
+        "description": f"查本伺服器的『{points_cog.POINTS_NAME}』：不給 user 看排行榜，給 user 看某人點數。",
         "parameters": {"type": "object", "properties": {
             "user": {"type": "string", "description": "要查的人名（部分比對）；省略則回排行榜"},
             "top_n": {"type": "integer", "description": "排行榜取前幾名，預設 10"}},

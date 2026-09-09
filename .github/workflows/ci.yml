@@ -22,4 +22,4 @@ jobs:
 
       - name: Byte-compile all Python (syntax check)
         # -x excludes the local venv if one is ever committed by accident.
-        run: python -m compileall -q -x '(^|/)(venv|chrome-[^/]+|chromedriver-[^/]+|driver)/' .
+        run: python -m compileall -q -x '(^|/)venv/' .

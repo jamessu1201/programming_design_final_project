@@ -14,6 +14,12 @@ logger = logging.getLogger(__name__)
 PREFIX_JSON = "json/prefix.json"
 CONFIG_PATH = "config.yaml"
 DEFAULT_PREFIX = "!"
+DEFAULT_DESCRIPTION = "多功能 Discord 機器人"
+
+# Cog packages loaded at startup, in order. `cogs_local` is optional and
+# gitignored: drop private cogs (or ones specific to your server) in there and
+# they get loaded like any other. Missing directory = silently skipped.
+COG_PACKAGES = ("cogs", "cogs_local")
 
 with open(CONFIG_PATH, "r", encoding="utf-8") as f:
     config = yaml.safe_load(f)
@@ -63,7 +69,7 @@ def main():
     bot = commands.Bot(
         command_prefix=determine_prefix,
         owner_ids=set(owners),
-        description="james and michael的萬能機器人",
+        description=config.get("description", DEFAULT_DESCRIPTION),
         intents=intents,
     )
     bot.config = config
@@ -73,14 +79,17 @@ def main():
         # Load cogs exactly once, before connecting. (on_ready can fire
         # multiple times on reconnect, which would re-load extensions and
         # double-register listeners.) One bad cog must not abort the rest.
-        for file in sorted(os.listdir("cogs")):
-            if file.endswith(".py") and not file.startswith("_"):
-                ext = f"cogs.{file[:-3]}"
-                try:
-                    await bot.load_extension(ext)
-                    logger.info("Loaded %s", ext)
-                except Exception:
-                    logger.exception("Failed to load %s", ext)
+        for package in COG_PACKAGES:
+            if not os.path.isdir(package):
+                continue
+            for file in sorted(os.listdir(package)):
+                if file.endswith(".py") and not file.startswith("_"):
+                    ext = f"{package}.{file[:-3]}"
+                    try:
+                        await bot.load_extension(ext)
+                        logger.info("Loaded %s", ext)
+                    except Exception:
+                        logger.exception("Failed to load %s", ext)
 
     @bot.event
     async def on_ready():

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""屁眼點數排行榜（限特定伺服器）。看：能管理該 guild 的人；reset：只有 owner。"""
+"""活躍點數排行榜。看：能管理該 guild 的人；reset：只有 owner。"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -11,7 +11,7 @@ from fastapi.responses import RedirectResponse
 import storage
 
 from .. import audit, security
-from cogs.points import TARGET_GUILD
+from cogs import points as points_cog
 
 router = APIRouter()
 
@@ -50,7 +50,8 @@ async def leaderboard(
     bot = request.app.state.bot
     guild = bot.get_guild(guild_id)
     rows = []
-    if guild_id == TARGET_GUILD:
+    enabled = points_cog.points_enabled(bot, guild_id)
+    if enabled:
         g = _load().get(str(guild_id), {})
         board = sorted(g.items(), key=lambda kv: kv[1]["points"], reverse=True)
         for rank, (uid, rec) in enumerate(board, start=1):
@@ -72,7 +73,9 @@ async def leaderboard(
                 "name": guild.name if guild else "(unknown)",
                 "icon": str(guild.icon.url) if guild and guild.icon else None,
             },
-            "is_target": guild_id == TARGET_GUILD,
+            "is_target": enabled,
+            "points_name": points_cog.POINTS_NAME,
+            "points_emoji": points_cog.POINTS_EMOJI,
             "rows": rows,
         },
     )

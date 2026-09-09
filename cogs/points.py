@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""屁眼點數：群組活躍度點數系統（只限特定伺服器）。
+"""活躍度點數系統。名稱、費率與適用伺服器都在 config.yaml 的 `points:` 區塊。
 
-- 進語音每分鐘 +VOICE_POINTS_PER_MIN 點（排除 AFK 頻道 / 自己靜音或拒聽 / 頻道只剩一個真人）。
-- 每發一則訊息 +MSG_POINTS 點（不限）。
+- 進語音每分鐘 +voice_points_per_min 點（排除 AFK 頻道 / 自己靜音或拒聽 / 頻道只剩一個真人）。
+- 每發一則訊息 +message_points 點（不限）。
 - /points top 看排行榜、/points view 看自己或某人、/points reset 管理員歸零。
 """
 from __future__ import annotations
@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 
 import discord
+import yaml
 from discord import app_commands
 from discord.ext import commands, tasks
 
@@ -17,13 +18,50 @@ import storage
 
 logger = logging.getLogger(__name__)
 
-TARGET_GUILD = 960893399014211614
-VOICE_POINTS_PER_MIN = 1
-MSG_POINTS = 1
+CONFIG_PATH = "config.yaml"
 POINTS_JSON = "json/points.json"
+
+DEFAULTS = {
+    "guild_id": None,        # None = 所有伺服器都啟用
+    "display_name": "活躍點數",
+    "emoji": "⭐",
+    "voice_points_per_min": 1,
+    "message_points": 1,
+}
 
 LEADERBOARD_SIZE = 15
 MEDALS = {1: "🥇", 2: "🥈", 3: "🥉"}
+
+
+# ── 設定 ──
+
+def points_config(bot) -> dict:
+    """執行期設定。bot.config 是權威來源（!deploy 會重載它），缺的補預設。"""
+    cfg = dict(DEFAULTS)
+    cfg.update((getattr(bot, "config", None) or {}).get("points") or {})
+    return cfg
+
+
+def points_enabled(bot, guild_id) -> bool:
+    """guild_id 設 null（None）代表不限伺服器。"""
+    target = points_config(bot)["guild_id"]
+    return target is None or guild_id == target
+
+
+def _config_from_file() -> dict:
+    """slash 指令的 description 在 import 時就定案，那時還碰不到 bot.config，
+    所以顯示用的名稱/emoji 直接讀一次 config.yaml。改了要 !reload points，
+    指令描述還要再 !sync 才會更新。"""
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            return (yaml.safe_load(f) or {}).get("points") or {}
+    except Exception:
+        return {}
+
+
+_DISPLAY = {**DEFAULTS, **_config_from_file()}
+POINTS_NAME = _DISPLAY["display_name"]
+POINTS_EMOJI = _DISPLAY["emoji"]
 
 
 # ── 持久化（純函式，方便測試） ──
@@ -71,7 +109,7 @@ def _leaderboard(data: dict, guild_id):
 # ── 排行榜分頁器 ──
 
 class LeaderboardView(discord.ui.View):
-    """屁眼點數排行榜的 ◀▶ 翻頁（模仿 others.py 的 PollView）。只有下指令的人能翻。"""
+    """排行榜的 ◀▶ 翻頁（模仿 others.py 的 PollView）。只有下指令的人能翻。"""
 
     PER_PAGE = LEADERBOARD_SIZE
 
@@ -98,7 +136,7 @@ class LeaderboardView(discord.ui.View):
                 f"（🎙️{rec['voice_min']} 分 / 💬{rec['messages']} 則）"
             )
         embed = discord.Embed(
-            title="🍑 屁眼點數排行榜",
+            title=f"{POINTS_EMOJI} {POINTS_NAME}排行榜",
             description="\n".join(lines),
             color=discord.Color.gold(),
         )
@@ -152,23 +190,30 @@ class Points(commands.Cog):
 
     @tasks.loop(seconds=60)
     async def voice_tick(self):
-        guild = self.bot.get_guild(TARGET_GUILD)
-        if guild is None:
+        cfg = points_config(self.bot)
+        target = cfg["guild_id"]
+        if target is None:
+            guilds = list(self.bot.guilds)
+        else:
+            guild = self.bot.get_guild(target)
+            guilds = [guild] if guild else []
+        if not guilds:
             return
-        afk_id = guild.afk_channel.id if guild.afk_channel else None
         async with self._lock:
             data = _load()
             changed = False
-            for vc in guild.voice_channels:
-                humans = [m for m in vc.members if not m.bot]
-                if not _voice_channel_eligible(len(humans), vc.id == afk_id):
-                    continue
-                for m in humans:
-                    vs = m.voice
-                    if vs and _member_voice_eligible(vs.self_mute, vs.self_deaf):
-                        _award(data, guild.id, m.id, m.display_name,
-                               points=VOICE_POINTS_PER_MIN, voice_min=1)
-                        changed = True
+            for guild in guilds:
+                afk_id = guild.afk_channel.id if guild.afk_channel else None
+                for vc in guild.voice_channels:
+                    humans = [m for m in vc.members if not m.bot]
+                    if not _voice_channel_eligible(len(humans), vc.id == afk_id):
+                        continue
+                    for m in humans:
+                        vs = m.voice
+                        if vs and _member_voice_eligible(vs.self_mute, vs.self_deaf):
+                            _award(data, guild.id, m.id, m.display_name,
+                                   points=cfg["voice_points_per_min"], voice_min=1)
+                            changed = True
             if changed:
                 _save(data)
 
@@ -186,34 +231,36 @@ class Points(commands.Cog):
     async def on_message(self, message: discord.Message):
         if message.author.bot or message.guild is None:
             return
-        if message.guild.id != TARGET_GUILD:
+        if not points_enabled(self.bot, message.guild.id):
             return
+        cfg = points_config(self.bot)
         async with self._lock:
             data = _load()
             _award(data, message.guild.id, message.author.id,
-                   message.author.display_name, points=MSG_POINTS, messages=1)
+                   message.author.display_name,
+                   points=cfg["message_points"], messages=1)
             _save(data)
 
     # --- slash 指令 ---
 
-    group = app_commands.Group(name="points", description="屁眼點數", guild_only=True)
+    group = app_commands.Group(name="points", description=POINTS_NAME, guild_only=True)
 
     async def _guard(self, interaction: discord.Interaction) -> bool:
         """擋掉非目標伺服器。回傳 True 表示可以繼續。"""
-        if interaction.guild_id != TARGET_GUILD:
+        if not points_enabled(self.bot, interaction.guild_id):
             await interaction.response.send_message(
-                "此功能僅在特定伺服器啟用。", ephemeral=True)
+                "此功能未在這個伺服器啟用。", ephemeral=True)
             return False
         return True
 
-    @group.command(name="top", description="看屁眼點數排行榜")
+    @group.command(name="top", description=f"看{POINTS_NAME}排行榜")
     async def top(self, interaction: discord.Interaction):
         if not await self._guard(interaction):
             return
         board = _leaderboard(_load(), interaction.guild_id)
         if not board:
             return await interaction.response.send_message(
-                "目前還沒有人有屁眼點數，快去語音或聊天吧。", ephemeral=True)
+                f"目前還沒有人有{POINTS_NAME}，快去語音或聊天吧。", ephemeral=True)
 
         view = LeaderboardView(board, interaction.user.id)
         embed = view._build_embed()
@@ -224,7 +271,7 @@ class Points(commands.Cog):
             embed=embed, view=view, allowed_mentions=discord.AllowedMentions.none())
         view.message = await interaction.original_response()
 
-    @group.command(name="view", description="看自己或某人的屁眼點數")
+    @group.command(name="view", description=f"看自己或某人的{POINTS_NAME}")
     @app_commands.describe(user="要查誰（不填就是自己）")
     async def view(self, interaction: discord.Interaction, user: discord.Member = None):
         if not await self._guard(interaction):
@@ -236,11 +283,11 @@ class Points(commands.Cog):
         if rank is None:
             who = "你" if target == interaction.user else target.display_name
             return await interaction.response.send_message(
-                f"{who}還沒有任何屁眼點數。", ephemeral=True,
+                f"{who}還沒有任何{POINTS_NAME}。", ephemeral=True,
                 allowed_mentions=discord.AllowedMentions.none())
         rec = board[rank - 1][1]
         embed = discord.Embed(
-            title="🍑 屁眼點數",
+            title=f"{POINTS_EMOJI} {POINTS_NAME}",
             description=(
                 f"{target.mention}\n"
                 f"**{rec['points']}** 點 · 第 **{rank}** 名（共 {len(board)} 人）\n"
@@ -267,14 +314,14 @@ class Points(commands.Cog):
                 count = len(g)
                 data.pop(str(interaction.guild_id), None)
                 _save(data)
-                msg = f"🧹 已清空整個伺服器的屁眼點數（{count} 人歸零）。"
+                msg = f"🧹 已清空整個伺服器的{POINTS_NAME}（{count} 人歸零）。"
             else:
                 if str(user.id) in g:
                     del g[str(user.id)]
                     if not g:
                         data.pop(str(interaction.guild_id), None)
                     _save(data)
-                    msg = f"🧹 已把 {user.display_name} 的屁眼點數歸零。"
+                    msg = f"🧹 已把 {user.display_name} 的{POINTS_NAME}歸零。"
                 else:
                     msg = f"{user.display_name} 本來就沒有點數。"
         await interaction.response.send_message(
@@ -290,18 +337,21 @@ class Points(commands.Cog):
             return await interaction.response.send_message(
                 "只有 bot owner 能重算點數。", ephemeral=True)
 
+        cfg = points_config(self.bot)
+        voice_rate = cfg["voice_points_per_min"]
+        msg_rate = cfg["message_points"]
         async with self._lock:
             data = _load()
             g = data.get(str(interaction.guild_id), {})
             for rec in g.values():
-                rec["points"] = (rec.get("voice_min", 0) * VOICE_POINTS_PER_MIN
-                                 + rec.get("messages", 0) * MSG_POINTS)
+                rec["points"] = (rec.get("voice_min", 0) * voice_rate
+                                 + rec.get("messages", 0) * msg_rate)
             if g:
                 _save(data)
             count = len(g)
 
         await interaction.response.send_message(
-            f"🧮 已用「語音 {VOICE_POINTS_PER_MIN} 點/分 + 訊息 {MSG_POINTS} 點/則」"
+            f"🧮 已用「語音 {voice_rate} 點/分 + 訊息 {msg_rate} 點/則」"
             f"重算 {count} 人的點數。",
             allowed_mentions=discord.AllowedMentions.none())
 

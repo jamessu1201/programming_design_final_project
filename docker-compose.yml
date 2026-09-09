@@ -1,3 +1,5 @@
+# Values below come from `.env` in this directory (docker compose reads it for
+# interpolation automatically). See .env.example for what to set.
 services:
   dcbot:
     build: .
@@ -7,28 +9,34 @@ services:
     init: true
     env_file: .env
     environment:
-      - TZ=Asia/Taipei
-    # Overlay the runtime data dirs from the HDD bind into /app (where the code
-    # expects them by relative path). Everything else (code) is baked in the image.
+      - TZ=${TZ:-Asia/Taipei}
+    # Overlay the runtime data dirs into /app (where the code expects them by
+    # relative path). Everything else (the code) is baked into the image.
+    # DCBOT_DATA points at the directory holding your config/secrets/state;
+    # it defaults to ./data next to this file.
     volumes:
-      - /mnt/docker-data/dcbot/config.yaml:/app/config.yaml
-      - /mnt/docker-data/dcbot/json:/app/json
-      - /mnt/docker-data/dcbot/api_key:/app/api_key
-      - /mnt/docker-data/dcbot/private:/app/private
-      - /mnt/docker-data/dcbot/logs:/app/logs
+      - ${DCBOT_DATA:-./data}/config.yaml:/app/config.yaml
+      - ${DCBOT_DATA:-./data}/json:/app/json
+      - ${DCBOT_DATA:-./data}/api_key:/app/api_key
+      - ${DCBOT_DATA:-./data}/private:/app/private
+      - ${DCBOT_DATA:-./data}/logs:/app/logs
+      # Optional: private cogs that aren't in git. Safe to leave enabled — an
+      # empty directory just means no extra cogs get loaded.
+      - ${DCBOT_DATA:-./data}/cogs_local:/app/cogs_local
     networks:
       - traefik
-    # Dashboard (uvicorn on 0.0.0.0:8080 inside the container) is published by
-    # Traefik on the `web` (:80) entrypoint; CT100 cloudflared fronts the public
-    # https for dashboard.jamessu1201.com. Port 8080 is NOT published to the host
-    # (Traefik already uses host :8080, and reaches us over the docker network).
+    # The dashboard listens on 0.0.0.0:8080 inside the container and is
+    # published by Traefik rather than by a host port mapping. If you don't run
+    # Traefik, delete the `networks:` keys and the labels below, and add
+    # `ports: ["8080:8080"]` instead.
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.dcbot.entrypoints=web"
-      - "traefik.http.routers.dcbot.rule=Host(`dashboard.jamessu1201.com`)"
+      - "traefik.http.routers.dcbot.rule=Host(`${DASHBOARD_HOST:-dashboard.example.com}`)"
       - "traefik.http.services.dcbot.loadbalancer.server.port=8080"
 
-# CT108 apps LXC 既有的 Traefik 網路（與 moneybank/fb-watcher 共用）
+# An existing external Traefik network. Remove this block if you're not using
+# Traefik (see the note on the labels above).
 networks:
   traefik:
     external: true

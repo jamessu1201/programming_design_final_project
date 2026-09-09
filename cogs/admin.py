@@ -15,9 +15,35 @@ import storage
 
 logger = logging.getLogger(__name__)
 
-EXTERNAL_MODULES = ["leetcode", "attend_playwright", "attend_program"]
+EXTERNAL_MODULES = ["leetcode"]
 AUTO_DEPLOY_INTERVAL = 30  # seconds
 AUTO_DEPLOY_STATE = "json/autodeploy.json"
+
+# Mirrors COG_PACKAGES in project.py — keep the two in sync.
+COG_PACKAGES = ("cogs", "cogs_local")
+
+
+def _resolve_ext(module):
+    """Turn a bare cog name into its extension path.
+
+    Private cogs live in the gitignored `cogs_local/`, so `!reload <name>` has
+    to look there as well as in `cogs/`. A name that already carries a package
+    prefix is passed through untouched.
+    """
+    if module.startswith(tuple(f"{p}." for p in COG_PACKAGES)):
+        return module
+    for package in COG_PACKAGES:
+        if os.path.isfile(os.path.join(package, f"{module}.py")):
+            return f"{package}.{module}"
+    return f"cogs.{module}"
+
+
+def _short_name(ext):
+    """Strip the package prefix off an extension name, for display."""
+    for package in COG_PACKAGES:
+        if ext.startswith(f"{package}."):
+            return ext[len(package) + 1:]
+    return ext
 
 
 def _read_autodeploy_state():
@@ -248,7 +274,7 @@ class Admin(commands.Cog):
         if module is None:
             return await ctx.send("please enter a module.")
         try:
-            await self.bot.load_extension(f"cogs.{module}")
+            await self.bot.load_extension(_resolve_ext(module))
         except Exception as e:
             await ctx.send(f"\N{PISTOL} {type(e).__name__}: {e}")
         else:
@@ -261,7 +287,7 @@ class Admin(commands.Cog):
         if module is None:
             return await ctx.send("please enter a module.")
         try:
-            await self.bot.unload_extension(f"cogs.{module}")
+            await self.bot.unload_extension(_resolve_ext(module))
         except Exception as e:
             await ctx.send(f"\N{PISTOL} {type(e).__name__}: {e}")
         else:
@@ -275,7 +301,7 @@ class Admin(commands.Cog):
             return await ctx.send("please enter a module.")
         try:
             reloaded = self._reload_external()
-            await self.bot.reload_extension(f"cogs.{module}")
+            await self.bot.reload_extension(_resolve_ext(module))
         except Exception as e:
             await ctx.send(f"\N{PISTOL} {type(e).__name__}: {e}")
         else:
@@ -295,9 +321,9 @@ class Admin(commands.Cog):
                 continue
             try:
                 await self.bot.reload_extension(ext_name)
-                success.append(ext_name.replace("cogs.", ""))
+                success.append(_short_name(ext_name))
             except Exception as e:
-                failed.append(f"{ext_name.replace('cogs.', '')}: {e}")
+                failed.append(f"{_short_name(ext_name)}: {e}")
         try:
             await self.bot.reload_extension("cogs.admin")
             success.append("admin")
