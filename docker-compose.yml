@@ -1,0 +1,42 @@
+# Values below come from `.env` in this directory (docker compose reads it for
+# interpolation automatically). See .env.example for what to set.
+services:
+  dcbot:
+    build: .
+    image: dcbot:latest
+    container_name: dcbot
+    restart: unless-stopped
+    init: true
+    env_file: .env
+    environment:
+      - TZ=${TZ:-Asia/Taipei}
+    # Overlay the runtime data dirs into /app (where the code expects them by
+    # relative path). Everything else (the code) is baked into the image.
+    # DCBOT_DATA points at the directory holding your config/secrets/state;
+    # it defaults to ./data next to this file.
+    volumes:
+      - ${DCBOT_DATA:-./data}/config.yaml:/app/config.yaml
+      - ${DCBOT_DATA:-./data}/json:/app/json
+      - ${DCBOT_DATA:-./data}/api_key:/app/api_key
+      - ${DCBOT_DATA:-./data}/private:/app/private
+      - ${DCBOT_DATA:-./data}/logs:/app/logs
+      # Optional: private cogs that aren't in git. Safe to leave enabled — an
+      # empty directory just means no extra cogs get loaded.
+      - ${DCBOT_DATA:-./data}/cogs_local:/app/cogs_local
+    networks:
+      - traefik
+    # The dashboard listens on 0.0.0.0:8080 inside the container and is
+    # published by Traefik rather than by a host port mapping. If you don't run
+    # Traefik, delete the `networks:` keys and the labels below, and add
+    # `ports: ["8080:8080"]` instead.
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.dcbot.entrypoints=web"
+      - "traefik.http.routers.dcbot.rule=Host(`${DASHBOARD_HOST:-dashboard.example.com}`)"
+      - "traefik.http.services.dcbot.loadbalancer.server.port=8080"
+
+# An existing external Traefik network. Remove this block if you're not using
+# Traefik (see the note on the labels above).
+networks:
+  traefik:
+    external: true

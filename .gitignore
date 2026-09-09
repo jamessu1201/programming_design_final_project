@@ -1,0 +1,39 @@
+test.py
+private/
+api_key/*
+!api_key/oauth.json.example
+.claude/
+.env
+venv/
+
+# Local / private cogs: dropped in at runtime, never committed.
+cogs_local/
+
+logs/*
+!logs/.gitkeep
+__pycache__/
+*.pyc
+
+*.html
+!dashboard/templates/**/*.html
+*.png
+*.jpg
+/log*
+/less*
+
+# Your own deployment's channel/role IDs, endpoints and tokens.
+# Copy config.example.yaml -> config.yaml and edit that.
+config.yaml
+
+# Dashboard runtime artefacts
+dashboard/audit.jsonl
+
+# Large binaries — use package managers instead
+*.exe
+
+# Runtime state written by the bot (per-deployment, often contains user data)
+json/pic_database.json
+json/queues.json
+json/points.json
+json/fb_watch.json
+json/autodeploy.json

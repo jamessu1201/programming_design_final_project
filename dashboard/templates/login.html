@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <h1>Bot 管理面板</h1>
+  <p>請用 Discord 登入 — 只有 bot owner 與有 <code>管理伺服器</code> 權限的人能進來。</p>
+  <a class="btn btn-primary" href="{{ oauth_login_url }}">用 Discord 登入</a>
+</section>
+{% endblock %}

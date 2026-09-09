@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title%}維運 · Bot Dashboard{% endblock %}
+{% block content %}
+<section>
+  <h1>🛠 維運面板</h1>
+  <p><a href="/">← 回首頁</a></p>
+
+  <div class="card">
+    <h2>狀態</h2>
+    <ul>
+      <li>Uptime: <strong>{{ uptime_seconds // 3600 }}h {{ (uptime_seconds % 3600) // 60 }}m</strong></li>
+      <li>Guild 數: <strong>{{ guild_count }}</strong></li>
+      <li>已載入 cogs ({{ loaded_cogs | length }}): <code>{{ loaded_cogs | join(', ') }}</code></li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>動作</h2>
+    <form method="post" action="/maintenance/sync" class="inline-form" onsubmit="return confirm('全域同步 slash commands？最多 1 小時生效。')">
+      <input type="hidden" name="_csrf" value="{{ csrf_for(session) }}">
+      <button type="submit" class="btn">Sync slash commands</button>
+    </form>
+    <form method="post" action="/maintenance/reload" class="inline-form" onsubmit="return confirm('重新載入所有 cog？')">
+      <input type="hidden" name="_csrf" value="{{ csrf_for(session) }}">
+      <button type="submit" class="btn">Reload all cogs</button>
+    </form>
+    <form method="post" action="/maintenance/deploy" class="inline-form" onsubmit="return confirm('git pull 最新版本並重新載入？')">
+      <input type="hidden" name="_csrf" value="{{ csrf_for(session) }}">
+      <button type="submit" class="btn btn-primary">Git pull + reload</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>內建排程任務</h2>
+    {% if auto_tasks %}
+    <table class="data">
+      <thead><tr><th>任務</th><th>說明</th><th>狀態</th><th></th></tr></thead>
+      <tbody>
+        {% set descs = {
+          'leetcode': '每天 08:05 (UTC+8) 發 LeetCode 每日題',
+          'happy_birthday': '每天 00:00 (UTC+8) 生日提醒',
+          'lol_reminder': '每天 23:xx 隨機分鐘 LOL 提醒',
+          'contest_check': '每 5 分鐘檢查 LeetCode 比賽',
+        } %}
+        {% for name, enabled in auto_tasks.items() %}
+        <tr>
+          <td><code>{{ name }}</code></td>
+          <td>{{ descs.get(name, '') }}</td>
+          <td>{% if enabled %}🟢 開{% else %}🔴 關{% endif %}</td>
+          <td>
+            <form method="post" action="/maintenance/auto-tasks/{{ name }}/toggle" class="inline-form">
+              <input type="hidden" name="_csrf" value="{{ csrf_for(session) }}">
+              <button type="submit" class="btn">{{ '關閉' if enabled else '開啟' }}</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted">Auto cog 還沒載入。</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>Auto-deploy</h2>
+    {% if autodeploy.get('enabled') %}
+      <p>🟢 已開啟，回報到
+        {% if autodeploy_channel %}<strong>#{{ autodeploy_channel.name }}</strong>（{{ autodeploy_channel.guild }}）
+        {% else %}頻道 {{ autodeploy.channel_id }}{% endif %}
+      </p>
+      <form method="post" action="/maintenance/autodeploy/off" class="inline-form" onsubmit="return confirm('關掉 auto-deploy？')">
+        <input type="hidden" name="_csrf" value="{{ csrf_for(session) }}">
+        <button type="submit" class="btn btn-danger">關閉</button>
+      </form>
+    {% else %}
+      <p>🔴 已關閉</p>
+      <form method="post" action="/maintenance/autodeploy/on" class="inline-form">
+        <input type="hidden" name="_csrf" value="{{ csrf_for(session) }}">
+        <input type="text" name="channel_id" placeholder="回報頻道 ID" pattern="\d+" required>
+        <button type="submit" class="btn btn-primary">開啟</button>
+      </form>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

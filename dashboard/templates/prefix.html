@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Prefix · {{ guild.name }}{% endblock %}
+{% block content %}
+<section>
+  <div class="guild-header">
+    {% if guild.icon %}<img src="{{ guild.icon }}" alt="">{% endif %}
+    <h1>⚙ Prefix — {{ guild.name }}</h1>
+  </div>
+  <p><a href="/guilds/{{ guild.id }}">← 回 {{ guild.name }}</a></p>
+
+  <div class="card">
+    <p>目前 prefix：<code>{{ current }}</code>（預設 <code>{{ default }}</code>）</p>
+    <form method="post" action="/guilds/{{ guild.id }}/prefix" class="inline-form">
+      <input type="hidden" name="_csrf" value="{{ csrf_for(session) }}">
+      <input type="text" name="new_prefix" value="{{ current }}" maxlength="{{ max_len }}" required>
+      <button type="submit" class="btn btn-primary">儲存</button>
+    </form>
+    <p class="muted">最長 {{ max_len }} 字元，不可包含空白。</p>
+  </div>
+</section>
+{% endblock %}

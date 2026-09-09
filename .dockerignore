@@ -1,0 +1,28 @@
+# Build context excludes. Code is COPYed into the image; everything below is
+# either dev-only, huge, or provided at runtime from the bind mount.
+
+# dev / VCS / CI
+venv/
+__pycache__/
+*.pyc
+.git/
+.github/
+.claude/
+test.py
+
+# runtime state, secrets, local assets -> come from the bind mount
+json/
+api_key/
+private/
+logs/
+cogs_local/
+config.yaml
+*.png
+*.PNG
+.env
+
+# large binaries
+ffmpeg.exe
+
+# deploy artefacts
+*.tar.gz

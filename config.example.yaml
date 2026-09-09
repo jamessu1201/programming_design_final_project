@@ -1,0 +1,67 @@
+# Copy to `config.yaml` and fill in your own server's IDs.
+#   cp config.example.yaml config.yaml
+# `config.yaml` is gitignored — never commit your real IDs, endpoints or topics.
+#
+# To get an ID: Discord → 設定 → 進階 → 開發者模式，然後右鍵頻道/身分組 → 複製 ID.
+# Leave an ID as 0 to disable the feature that uses it.
+
+# Shown in `!help` and on the bot's profile.
+description: 多功能 Discord 機器人
+
+channels:
+  birthday: 0          # 生日祝賀發送的頻道 (cogs/auto.py)
+  leetcode: 0          # LeetCode 每日一題 / 周賽提醒 (cogs/auto.py)
+  lol: 0               # LOL 提醒 (cogs/auto.py)
+  reaction_delete: 0   # 在此頻道 ⏭ 反應達 2 個就刪訊息 (project.py)
+
+roles:
+  birthday:            # 生日當天會被 tag 的身分組們
+    - 0
+  birthday_ping: 0     # 生日提醒要 ping 的身分組
+  lol: 0
+  leetcode_contest: 0  # LeetCode 周賽提醒身分組
+
+channels_extra:
+  role_select: 0       # cogs/role_select.py 貼自助選身分組面板的頻道
+
+# 自助選身分組面板的按鈕。id 要對應上面 roles 裡實際存在的身分組。
+role_select:
+  - id: 0
+    label: LeetCode 周賽提醒
+    emoji: "📢"
+
+# LLM（OpenAI 相容端點）。API key 不放這裡——放 api_key/llm.txt 或環境變數 llm_api_key。
+llm:
+  base_url: https://api.openai.com/v1
+  text_model: gpt-4o-mini
+  vision_model: gpt-4o-mini  # 多模態，看圖
+  max_tokens: 4096           # 太小會把長回覆/教學截斷（「話沒講完」）；越大越不會斷但慢
+
+  history_turns: 6           # 短期上下文：每人每頻道保留幾輪
+  history_ttl_minutes: 30    # 超過這時間沒講話就清掉上下文
+  system_prompt: "你是一隻 Discord 萬能機器人，請用繁體中文回答。只有在需要即時資訊（天氣、網路搜尋）、做計算、或查本伺服器點數/queue 時才呼叫工具；單純回答、接續或補完先前的說明時，直接寫文字，不要呼叫工具。工具清單以外的功能並不存在，不要假裝呼叫工具。"
+  # 機器人互聊（/botchat）：只開放這個頻道，並節流 + 設上限避免燒爆 token。
+  botchat_channel_id: 0
+  botchat_delay_seconds: 4   # 每次回覆前停幾秒（可讀 + 限速）
+  botchat_max_turns: 40      # 我方回幾輪後自動停（防忘了喊停）
+  # 工具（function calling）：時間/計算、天氣、網路搜尋、查點數/queue。
+  tools_enabled: true
+  tool_max_rounds: 5         # 一次回答最多幾輪 tool 呼叫，防無限叫工具
+
+# 活躍度點數 (cogs/points.py)
+points:
+  guild_id: null             # null = 所有伺服器都啟用；填 guild ID = 只在該伺服器啟用
+  display_name: 活躍點數      # 排行榜/指令回覆顯示的名稱，改成你想要的
+  emoji: "⭐"                 # 搭配上面名稱的 emoji
+  voice_points_per_min: 1    # 待在語音每分鐘給幾點
+  message_points: 1          # 每則訊息給幾點
+# 註：改了 display_name 之後，slash 指令的描述要跑一次 !sync 才會更新。
+
+# ntfy 手機推播（可選）。fbwatch 關鍵字命中時，除了 Discord DM 再推一份到手機。
+# ntfy topic 等同密碼——猜到就能訂閱你的推播，請用夠長夠亂的字串，且別提交上去。
+# token 若有需要，放 api_key/ntfy.txt 或環境變數 ntfy_token，不寫這裡。
+# ntfy:
+#   base_url: https://ntfy.sh
+#   user_topics:              # Discord uid（字串）→ 該人專屬 topic
+#     "000000000000000000": my-very-long-random-topic-name
+#   priority: high

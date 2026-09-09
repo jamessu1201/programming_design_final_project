@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}選擇伺服器 · Bot Dashboard{% endblock %}
+{% block content %}
+<section>
+  <h1>選擇伺服器</h1>
+  {% if guilds %}
+  <ul class="guild-list">
+    {% for g in guilds %}
+    <li>
+      <a href="/guilds/{{ g.id }}">
+        {% if g.icon %}<img src="{{ g.icon }}" alt="">{% endif %}
+        <div>
+          <strong>{{ g.name }}</strong>
+          <small>{{ g.member_count }} 成員 · ID {{ g.id }}</small>
+        </div>
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>找不到你能管的伺服器。</p>
+  {% endif %}
+
+  {% if session.is_owner %}
+  <hr>
+  <p><a class="btn" href="/maintenance">🛠 維運面板</a></p>
+  {% endif %}
+</section>
+{% endblock %}
