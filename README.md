@@ -10,7 +10,7 @@ git 自動部署。
 
 | Cog | 指令 | 說明 |
 |-----|------|------|
-| **Music** | `!play`、`!skip`、`!queue`、`!loop`、`!pause`、`!resume`、`!stop`、`!leave` | 用 yt-dlp + FFmpeg 播 YouTube 音樂 |
+| **Music** | `!play`、`!playnext`、`!skip`、`!queue`、`!loop`、`!pause`、`!resume`、`!stop`、`!leave` | 用 yt-dlp + FFmpeg 播 YouTube 音樂。`!playnext`（別名 `!pn`／`!insert`）把歌插到隊頭，下一首就播 |
 | **API** | `!meme`、`!mygo`、`!weather`、`!elden`、`!picture`、`!hololive` | 串接外部 API（迷因、天氣、Elden Ring wiki、Unsplash、Holodex） |
 | **Auto** | （自動） | 每日 LeetCode 題目、生日祝賀、LOL 提醒、LeetCode 周賽提醒 |
 | **Event** | （自動） | 關鍵字觸發迷因回應、髒話過濾 |
@@ -107,6 +107,7 @@ points:
   emoji: "⭐"
   voice_points_per_min: 1
   message_points: 1
+  excluded_roles: []      # 不計點的身分組 ID（訪客之類的）
 ```
 
 改完 `display_name` 之後跑 `!reload points`；slash 指令的描述還要再跑一次 `!sync` 才會更新。

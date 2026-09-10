@@ -27,6 +27,7 @@ DEFAULTS = {
     "emoji": "⭐",
     "voice_points_per_min": 1,
     "message_points": 1,
+    "excluded_roles": [],    # 這些身分組不計點（例如訪客）
 }
 
 LEADERBOARD_SIZE = 15
@@ -46,6 +47,27 @@ def points_enabled(bot, guild_id) -> bool:
     """guild_id 設 null（None）代表不限伺服器。"""
     target = points_config(bot)["guild_id"]
     return target is None or guild_id == target
+
+
+def member_excluded(member, cfg) -> bool:
+    """設定在 excluded_roles 的身分組不計點（訪客之類的）。
+
+    對訊息與語音都適用。已經累積的點數不會被動到——要清掉用
+    `/points reset <user>`。
+    """
+    excluded = cfg.get("excluded_roles") or []
+    if not excluded:
+        return False
+    role_ids = {r.id for r in getattr(member, "roles", ())}
+    if not role_ids:
+        return False
+    for rid in excluded:
+        try:
+            if int(rid) in role_ids:
+                return True
+        except (TypeError, ValueError):
+            logger.warning("points.excluded_roles 有非數字的值：%r", rid)
+    return False
 
 
 def _config_from_file() -> dict:
@@ -205,10 +227,15 @@ class Points(commands.Cog):
             for guild in guilds:
                 afk_id = guild.afk_channel.id if guild.afk_channel else None
                 for vc in guild.voice_channels:
-                    humans = [m for m in vc.members if not m.bot]
+                    # 被排除的身分組也不列入「頻道至少兩個真人」的計算，
+                    # 否則一個訪客陪著就能讓另一個人一直拿點。
+                    humans = [m for m in vc.members
+                              if not m.bot and not member_excluded(m, cfg)]
                     if not _voice_channel_eligible(len(humans), vc.id == afk_id):
                         continue
                     for m in humans:
+                        if member_excluded(m, cfg):
+                            continue
                         vs = m.voice
                         if vs and _member_voice_eligible(vs.self_mute, vs.self_deaf):
                             _award(data, guild.id, m.id, m.display_name,
@@ -234,6 +261,8 @@ class Points(commands.Cog):
         if not points_enabled(self.bot, message.guild.id):
             return
         cfg = points_config(self.bot)
+        if member_excluded(message.author, cfg):
+            return
         async with self._lock:
             data = _load()
             _award(data, message.guild.id, message.author.id,

@@ -411,6 +411,21 @@ class SongQueue(asyncio.Queue):
     def remove(self, index: int):
         del self._queue[index]
 
+    def put_front_nowait(self, item):
+        """插到隊頭（下一首就播）。
+
+        asyncio.Queue 沒有「插到前面」的 API，所以照著 put_nowait 的內部簿記
+        自己來一份：只把 append 換成 appendleft，其餘（未完成計數、清掉
+        _finished、喚醒等在 get() 的 consumer）都要照做，否則 audio_player_task
+        會繼續卡在 await songs.get() 不動。
+        """
+        if self.full():
+            raise asyncio.QueueFull
+        self._queue.appendleft(item)
+        self._unfinished_tasks += 1
+        self._finished.clear()
+        self._wakeup_next(self._getters)
+
 
 class VoiceState:
     def __init__(self, bot: commands.Bot, ctx: commands.Context):
@@ -808,16 +823,34 @@ class Music(commands.Cog):
         else:
             await ctx.send("已關閉循環播放！")
 
+    async def _search_allowed(self, ctx: commands.Context, search: str) -> bool:
+        """網址安全檢查（getaddrinfo 會阻塞，丟到 executor）。"""
+        safe = await asyncio.get_event_loop().run_in_executor(None, url_is_safe, search)
+        if not safe:
+            await ctx.send("這個網址不能播（不允許指向內部網路的位址）。")
+        return safe
+
+    @commands.command(name='playnext', aliases=['pn', 'insert'])
+    async def _play_next(self, ctx: commands.Context, *, search: str = None):
+        """把歌插到佇列最前面，下一首就播它"""
+        await self.ensure_voice_state(ctx)
+
+        if search is None:
+            return await ctx.send("請輸入關鍵字或網址")
+        if not await self._search_allowed(ctx, search):
+            return
+        if 'playlist?' in search:
+            return await ctx.send("播放清單請用 `!play`，這個指令一次只插一首。")
+
+        await self._add_song_to_queue(ctx, search, front=True)
+
     @commands.command(name='play', aliases=['p', 'Play', 'PLAY'])
     async def _play(self, ctx: commands.Context, *, search: str = None):
         """播音樂，可以使用URL也可以用關鍵字"""
         await self.ensure_voice_state(ctx)
-        
-        if search is not None:
-            safe = await asyncio.get_event_loop().run_in_executor(
-                None, url_is_safe, search)
-            if not safe:
-                return await ctx.send("這個網址不能播（不允許指向內部網路的位址）。")
+
+        if search is not None and not await self._search_allowed(ctx, search):
+            return
 
         if search is None:
             if ctx.voice_state.voice and ctx.voice_state.voice.is_paused():
@@ -861,8 +894,9 @@ class Music(commands.Cog):
         # 處理單首歌曲
         await self._add_song_to_queue(ctx, search)
 
-    async def _add_song_to_queue(self, ctx: commands.Context, search: str, silent: bool = False):
-        """新增歌曲到播放佇列的輔助方法"""
+    async def _add_song_to_queue(self, ctx: commands.Context, search: str,
+                                 silent: bool = False, front: bool = False):
+        """新增歌曲到播放佇列。front=True 表示插到隊頭，下一首就播。"""
         if not ctx.voice_state.voice:
             await ctx.invoke(self._join)
 
@@ -871,15 +905,14 @@ class Music(commands.Cog):
                 try:
                     source = await YTDLSource.create_source(ctx, search, loop=self.bot.loop)
                     song = Song(source)
-                    
-                    if 'insert' in search:
-                        # 插入到佇列前面（如果有這個功能需求）
-                        await ctx.voice_state.songs.put(song)
-                        await ctx.send('已插入 {}'.format(str(source)))
+
+                    if front:
+                        ctx.voice_state.songs.put_front_nowait(song)
+                        await ctx.send('⏫ 已插到隊頭，下一首播 {}'.format(str(source)))
                     else:
                         await ctx.voice_state.songs.put(song)
                         await ctx.send('已加入播放序列 {}'.format(str(source)))
-                        
+
                 except YTDLError as e:
                     await ctx.send('處理請求時發生錯誤: {}'.format(str(e)))
                 except Exception as e:

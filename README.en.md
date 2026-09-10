@@ -11,7 +11,7 @@ auto-deploy.
 
 | Cog | Commands | Description |
 |-----|----------|-------------|
-| **Music** | `!play`, `!skip`, `!queue`, `!loop`, `!pause`, `!resume`, `!stop`, `!leave` | YouTube music playback via yt-dlp + FFmpeg |
+| **Music** | `!play`, `!playnext`, `!skip`, `!queue`, `!loop`, `!pause`, `!resume`, `!stop`, `!leave` | YouTube music playback via yt-dlp + FFmpeg. `!playnext` (aliases `!pn` / `!insert`) jumps the song to the front of the queue |
 | **API** | `!meme`, `!mygo`, `!weather`, `!elden`, `!picture`, `!hololive` | External API integrations (memes, weather, Elden Ring wiki, Unsplash, Holodex) |
 | **Auto** | (automatic) | Daily LeetCode challenge, birthday greetings, LOL reminder, LeetCode contest reminders |
 | **Event** | (automatic) | Keyword-triggered meme responses, bad word filter |
@@ -113,6 +113,7 @@ points:
   emoji: "⭐"
   voice_points_per_min: 1
   message_points: 1
+  excluded_roles: []      # role IDs that earn no points (guests, etc.)
 ```
 
 After changing `display_name`, run `!reload points`; the slash command
