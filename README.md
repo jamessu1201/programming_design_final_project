@@ -1,3 +1,5 @@
+**繁體中文** | [English](README.en.md)
+
 # dcbot
 
 一隻多功能 Discord 機器人：音樂播放、LLM 助手、具名排隊系統、活躍度點數、LeetCode 提醒、
