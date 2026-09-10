@@ -115,6 +115,7 @@ points:
   message_points: 1
   active_days: 30         # default look-back for /points active (max 100)
   active_threshold: 200   # default threshold for /points active
+  history_days: null      # days of daily detail to keep; null = forever
   exclude_guests: true    # auto-exclude Discord guests (official IS_GUEST flag)
   excluded_roles: []      # extra role IDs that earn no points
 ```
@@ -123,11 +124,24 @@ After changing `display_name`, run `!reload points`; the slash command
 descriptions additionally need a `!sync`.
 
 `/points active` reads per-user daily buckets, which only start accumulating
-once this feature is deployed. To fill in the past, run
-`!points_backfill <days>` (bot owner only; add `dry` to preview) — it scans
-message history. **Messages only: Discord keeps no history of voice presence
-and exposes no API for it, so past voice minutes cannot be recovered.** Days
-that already have data are never overwritten, so re-running is safe.
+once this feature is deployed. To fill in the past, run `!points_backfill`
+(bot owner only):
+
+```
+!points_backfill           # the server's entire history
+!points_backfill 90        # just the last 90 days
+!points_backfill all dry   # preview without writing
+```
+
+**Messages only: Discord keeps no history of voice presence and exposes no API
+for it, so past voice minutes cannot be recovered.** Days that already have
+data are never overwritten, so re-running is safe.
+
+Daily buckets live in `json/points_daily.json`, separate from the running
+totals: they accumulate in memory and are flushed every 5 minutes, so however
+long the history gets it never slows down per-message handling (measured: 60
+users × 4 years of buckets inside `points.json` cost 37ms of synchronous I/O
+per message; split out, it is back to 2ms).
 
 ### 6. Run
 

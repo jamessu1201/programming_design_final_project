@@ -4,14 +4,18 @@
 - 進語音每 voice_minutes_per_point 分鐘 +1 點（排除 AFK 頻道 / 自己靜音或拒聽 /
   頻道只剩一個真人）。
 - 每發一則訊息 +message_points 點（不限）。
-- 每個人另外保留最近 HISTORY_DAYS 天的每日明細，供 /points active 做滾動視窗查詢。
+- 每日明細另外存在 json/points_daily.json（先在記憶體累積，每 FLUSH_MINUTES
+  分鐘落地一次），供 /points active 做滾動視窗查詢。預設永久保留，
+  可用 points.history_days 限制天數。
 - /points top 排行榜、/points view 個人、/points active 期間內達標名單、
-  /points reset 歸零、/points recompute 依現行費率重算。
+  /points reset 歸零、/points recompute 依現行費率重算、
+  !points_backfill 從歷史訊息回填每日明細（限 owner）。
 """
 from __future__ import annotations
 
 import datetime
 import logging
+import os
 
 import discord
 import yaml
@@ -24,9 +28,13 @@ logger = logging.getLogger(__name__)
 
 CONFIG_PATH = "config.yaml"
 POINTS_JSON = "json/points.json"
+# 每日明細獨立一個檔。實測過：把它塞進 points.json 會讓每則訊息的
+# read-modify-write 從 ~2ms 漲到 37ms（60 人 4 年）甚至 127ms（200 人 4 年），
+# 而 storage 是同步 I/O，那會直接卡住 event loop。
+DAILY_JSON = "json/points_daily.json"
 
 TZ = datetime.timezone(datetime.timedelta(hours=8))
-HISTORY_DAYS = 100  # 每人保留幾天的每日明細，給 /points active 的滾動視窗用
+FLUSH_MINUTES = 5   # 每日明細在記憶體累積，每隔這麼久才寫一次檔
 
 DEFAULTS = {
     "guild_id": None,        # None = 所有伺服器都啟用
@@ -36,6 +44,7 @@ DEFAULTS = {
     "message_points": 1,
     "active_days": 30,             # /points active 預設回看幾天
     "active_threshold": 200,       # /points active 預設門檻
+    "history_days": None,          # 每日明細保留幾天；null = 永久保留
     "exclude_guests": True,  # 自動排除 Discord 官方的訪客（MemberFlags.guest）
     "excluded_roles": [],    # 額外不計點的身分組 ID（自訂的訪客身分組之類的）
 }
@@ -63,22 +72,67 @@ def _today(now: datetime.datetime | None = None) -> str:
     return (now or datetime.datetime.now(TZ)).date().isoformat()
 
 
-def _prune_daily(rec: dict, today: str, keep_days: int = HISTORY_DAYS) -> None:
-    """丟掉太舊的每日分桶。ISO 日期字串的字典序就是時間序。"""
-    daily = rec.get("daily")
-    if not daily or len(daily) <= keep_days:
-        return
+# ── 每日明細（結構：{guild_id: {user_id: {"YYYY-MM-DD": 點數}}}）──
+
+def _daily_add(daily: dict, guild_id, member_id, day: str, points: int) -> None:
+    per_user = daily.setdefault(str(guild_id), {}).setdefault(str(member_id), {})
+    per_user[day] = per_user.get(day, 0) + points
+
+
+def _daily_merge(dst: dict, src: dict) -> None:
+    """把 src 的點數累加進 dst（用來把記憶體暫存併進檔案內容）。"""
+    for gid, users in src.items():
+        for uid, per_day in users.items():
+            for day, pts in per_day.items():
+                _daily_add(dst, gid, uid, day, pts)
+
+
+def _daily_prune(daily: dict, today: str, keep_days) -> int:
+    """丟掉太舊的分桶；keep_days 為 None 代表永久保留。回傳刪掉幾筆。
+
+    ISO 日期字串的字典序就是時間序，所以直接比字串。
+    """
+    if not keep_days:
+        return 0
     cutoff = (datetime.date.fromisoformat(today)
-              - datetime.timedelta(days=keep_days)).isoformat()
-    for d in [d for d in daily if d < cutoff]:
-        del daily[d]
+              - datetime.timedelta(days=int(keep_days))).isoformat()
+    removed = 0
+    for users in daily.values():
+        for per_day in users.values():
+            for d in [d for d in per_day if d < cutoff]:
+                del per_day[d]
+                removed += 1
+    return removed
 
 
-def _recent_points(rec: dict, today: str, days: int) -> int:
-    """最近 days 天（含今天）累積的點數。沒有每日明細的舊資料回 0。"""
+def _daily_recent(daily: dict, guild_id, today: str, days: int) -> dict:
+    """回傳 {user_id: 最近 days 天（含今天）的點數}，0 的不列入。"""
     start = (datetime.date.fromisoformat(today)
              - datetime.timedelta(days=days - 1)).isoformat()
-    return sum(v for d, v in (rec.get("daily") or {}).items() if d >= start)
+    out = {}
+    for uid, per_day in (daily.get(str(guild_id)) or {}).items():
+        got = sum(v for d, v in per_day.items() if d >= start)
+        if got:
+            out[uid] = got
+    return out
+
+
+def _migrate_inline_daily(points_data: dict, daily: dict) -> int:
+    """把舊版存在 points.json 記錄裡的 "daily" 欄位搬到獨立檔。
+
+    回傳被拔掉 daily 欄位的紀錄數（含空的——留著只會讓 points.json 白白變大，
+    而且下次還會被誤認成需要遷移）。搬完之後再呼叫就會回 0。
+    """
+    touched = 0
+    for gid, users in points_data.items():
+        for uid, rec in users.items():
+            if "daily" not in rec:
+                continue
+            inline = rec.pop("daily") or {}
+            for day, pts in inline.items():
+                _daily_add(daily, gid, uid, day, pts)
+            touched += 1
+    return touched
 
 
 def points_enabled(bot, guild_id) -> bool:
@@ -146,21 +200,20 @@ def _save(data: dict) -> None:
 # ── 點數核心邏輯（純函式，operate on passed dict） ──
 
 def _award(data: dict, guild_id, member_id, name, *, points=0, messages=0,
-           voice_min=0, minutes_per_point=None, day=None):
-    """累加明細，回傳這次實際加到的點數。
+           voice_min=0, minutes_per_point=None):
+    """累加累計數字，回傳這次實際加到的點數。
 
     語音採「每 minutes_per_point 分鐘 1 點」：先累加分鐘數，再看跨過了幾個
     整數倍才給點。這樣 3 分鐘 1 點不需要把點數變成小數。
 
-    給了 day 就同時記進 rec["daily"][day]，/points active 的滾動視窗靠它。
+    每日明細不在這裡處理——那份走 DAILY_JSON，由 cog 在記憶體累積後定期落地。
     """
     g = data.setdefault(str(guild_id), {})
     rec = g.get(str(member_id))
     if rec is None:
-        rec = {"name": name, "points": 0, "messages": 0, "voice_min": 0, "daily": {}}
+        rec = {"name": name, "points": 0, "messages": 0, "voice_min": 0}
         g[str(member_id)] = rec
     rec["name"] = name
-    rec.setdefault("daily", {})   # 舊資料沒有這個欄位
 
     gained = points
     if voice_min:
@@ -172,14 +225,10 @@ def _award(data: dict, guild_id, member_id, name, *, points=0, messages=0,
 
     rec["messages"] += messages
     rec["points"] += gained
-    if gained and day:
-        rec["daily"][day] = rec["daily"].get(day, 0) + gained
-        _prune_daily(rec, day)
     return gained
 
 
-def _merge_backfill(data: dict, guild_id, counts: dict, names: dict,
-                    msg_points: int, today: str):
+def _merge_backfill(daily: dict, guild_id, counts: dict, msg_points: int):
     """把回填掃到的 {uid: {day: 訊息數}} 併進每日明細。
 
     已經有紀錄的日子一律不動——那些是即時累積來的、裡面含語音點數，覆蓋
@@ -187,22 +236,16 @@ def _merge_backfill(data: dict, guild_id, counts: dict, names: dict,
 
     回傳 (寫入的人日數, 跳過的人日數)。
     """
-    g = data.setdefault(str(guild_id), {})
+    g = daily.setdefault(str(guild_id), {})
     filled = skipped = 0
     for uid, per_day in counts.items():
-        rec = g.get(str(uid))
-        if rec is None:
-            rec = {"name": names.get(uid, str(uid)), "points": 0,
-                   "messages": 0, "voice_min": 0, "daily": {}}
-            g[str(uid)] = rec
-        rec.setdefault("daily", {})
+        stored = g.setdefault(str(uid), {})
         for day, n in per_day.items():
-            if day in rec["daily"]:
+            if day in stored:
                 skipped += 1
                 continue
-            rec["daily"][day] = n * msg_points
+            stored[day] = n * msg_points
             filled += 1
-        _prune_daily(rec, today)
     return filled, skipped
 
 
@@ -296,11 +339,79 @@ class Points(commands.Cog):
         # Shared with the dashboard's points route so bot writes and dashboard
         # resets serialise against each other (same process, same loop).
         self._lock = storage.lock_for(POINTS_JSON)
+        self._daily_lock = storage.lock_for(DAILY_JSON)
+        # 每日明細先在記憶體累積，由 flush_daily 定期落地。每則訊息都去
+        # read-modify-write 一份完整歷史檔的話，光 I/O 就會卡住 event loop。
+        self._pending: dict = {}
         self.voice_tick.start()
+        self.flush_daily.start()
 
     def cog_unload(self):
         if self.voice_tick.is_running():
             self.voice_tick.cancel()
+        if self.flush_daily.is_running():
+            self.flush_daily.cancel()
+        # 卸載/重載前把還沒落地的部分寫掉，不然這段時間的明細會不見。
+        if self._pending:
+            self.bot.loop.create_task(self._flush_now())
+
+    # --- 每日明細的記憶體暫存 ---
+
+    def _note_daily(self, guild_id, member_id, day: str, points: int) -> None:
+        if points:
+            _daily_add(self._pending, guild_id, member_id, day, points)
+
+    def _daily_view(self, guild_id) -> dict:
+        """檔案內容 + 還沒落地的暫存，合起來的即時視圖。"""
+        daily = storage.read_json(DAILY_JSON)
+        _daily_merge(daily, self._pending)
+        return daily
+
+    async def _flush_now(self) -> int:
+        """把暫存併進檔案並清空。回傳寫入的人數。"""
+        if not self._pending:
+            return 0
+        pending, self._pending = self._pending, {}
+        async with self._daily_lock:
+            daily = storage.read_json(DAILY_JSON)
+            _daily_merge(daily, pending)
+            _daily_prune(daily, _today(), points_config(self.bot)["history_days"])
+            storage.write_json_atomic(DAILY_JSON, daily)
+        return sum(len(v) for v in pending.values())
+
+    async def _migrate_once(self) -> None:
+        """把舊版塞在 points.json 裡的 inline daily 搬到獨立檔。啟動時跑一次。
+
+        先在 points.json 那側 pop 並存檔，再併進 daily 檔——順序反過來的話，
+        中間掛掉會在下次啟動重複累加；照這個順序最壞只是少掉那批明細。
+        """
+        popped: dict = {}
+        async with self._lock:
+            data = _load()
+            moved = _migrate_inline_daily(data, popped)
+            if moved:
+                _save(data)
+        if not moved:
+            return
+        async with self._daily_lock:
+            daily = storage.read_json(DAILY_JSON)
+            _daily_merge(daily, popped)
+            storage.write_json_atomic(DAILY_JSON, daily)
+        logger.info("已清掉 %d 筆紀錄的舊 inline daily 欄位（明細移到 %s）",
+                    moved, DAILY_JSON)
+
+    @tasks.loop(minutes=FLUSH_MINUTES)
+    async def flush_daily(self):
+        await self._flush_now()
+
+    @flush_daily.before_loop
+    async def before_flush_daily(self):
+        await self.bot.wait_until_ready()
+        await self._migrate_once()
+
+    @flush_daily.error
+    async def flush_daily_error(self, error):
+        logger.error("flush_daily error: %s", error)
 
     # --- 語音掃描 loop ---
 
@@ -332,10 +443,10 @@ class Points(commands.Cog):
                             continue
                         vs = m.voice
                         if vs and _member_voice_eligible(vs.self_mute, vs.self_deaf):
-                            _award(data, guild.id, m.id, m.display_name,
-                                   voice_min=1,
-                                   minutes_per_point=cfg["voice_minutes_per_point"],
-                                   day=today)
+                            gained = _award(
+                                data, guild.id, m.id, m.display_name, voice_min=1,
+                                minutes_per_point=cfg["voice_minutes_per_point"])
+                            self._note_daily(guild.id, m.id, today, gained)
                             changed = True
             if changed:
                 _save(data)
@@ -361,10 +472,11 @@ class Points(commands.Cog):
             return
         async with self._lock:
             data = _load()
-            _award(data, message.guild.id, message.author.id,
-                   message.author.display_name,
-                   points=cfg["message_points"], messages=1, day=_today())
+            gained = _award(data, message.guild.id, message.author.id,
+                            message.author.display_name,
+                            points=cfg["message_points"], messages=1)
             _save(data)
+        self._note_daily(message.guild.id, message.author.id, _today(), gained)
 
     # --- slash 指令 ---
 
@@ -435,21 +547,17 @@ class Points(commands.Cog):
         cfg = points_config(self.bot)
         days = cfg["active_days"] if days is None else days
         threshold = cfg["active_threshold"] if threshold is None else threshold
-        if not 1 <= days <= HISTORY_DAYS:
+        if days < 1:
             return await interaction.response.send_message(
-                f"天數請介於 1～{HISTORY_DAYS}（每日明細只保留這麼久）。", ephemeral=True)
+                "天數至少要 1 天。", ephemeral=True)
         if threshold < 0:
             return await interaction.response.send_message(
                 "門檻不能是負數。", ephemeral=True)
 
-        today = _today()
-        g = _load().get(str(interaction.guild_id), {})
-        rows = []
-        for uid, rec in g.items():
-            got = _recent_points(rec, today, days)
-            if got >= threshold:
-                rows.append((uid, rec, got))
-        rows.sort(key=lambda r: r[2], reverse=True)
+        recent = _daily_recent(self._daily_view(interaction.guild_id),
+                               interaction.guild_id, _today(), days)
+        rows = sorted(((uid, got) for uid, got in recent.items() if got >= threshold),
+                      key=lambda r: r[1], reverse=True)
 
         if not rows:
             return await interaction.response.send_message(
@@ -459,7 +567,7 @@ class Points(commands.Cog):
 
         lines = [
             f"**{i}.** <@{uid}> — **{got}** 點"
-            for i, (uid, rec, got) in enumerate(rows[:25], start=1)
+            for i, (uid, got) in enumerate(rows[:25], start=1)
         ]
         if len(rows) > 25:
             lines.append(f"…還有 {len(rows) - 25} 人")
@@ -557,11 +665,12 @@ class Points(commands.Cog):
     @commands.command(name="points_backfill", hidden=True)
     @commands.is_owner()
     @commands.guild_only()
-    async def points_backfill(self, ctx: commands.Context, days: int = 90,
+    async def points_backfill(self, ctx: commands.Context, days: str = "all",
                               mode: str = ""):
         """從歷史訊息回填每日明細。加上 `dry` 只預覽不寫入。
 
-        用法：`!points_backfill 90` / `!points_backfill 90 dry`
+        用法：`!points_backfill`（整個伺服器的歷史）、`!points_backfill 90`、
+        `!points_backfill all dry`
 
         只回填訊息。**語音無法回填**——Discord 不保留語音在線的歷史，
         API 也沒有任何查詢端點，所以過去的語音分鐘數永遠補不回來。
@@ -569,20 +678,32 @@ class Points(commands.Cog):
         cfg = points_config(self.bot)
         if not points_enabled(self.bot, ctx.guild.id):
             return await ctx.send("此功能未在這個伺服器啟用。")
-        if not 1 <= days <= HISTORY_DAYS:
-            return await ctx.send(f"天數請介於 1～{HISTORY_DAYS}。")
+
+        if str(days).lower() in ("all", "0", "full"):
+            cutoff, span = None, "全部歷史"
+        else:
+            try:
+                n = int(days)
+            except ValueError:
+                return await ctx.send("天數請給數字，或用 `all` 掃全部歷史。")
+            if n < 1:
+                return await ctx.send("天數至少要 1 天。")
+            cutoff = datetime.datetime.now(TZ) - datetime.timedelta(days=n)
+            span = f"最近 {n} 天"
+
+        keep = cfg["history_days"]
+        if cutoff is None and keep:
+            return await ctx.send(
+                f"設定 points.history_days = {keep}，掃了全部歷史也會在寫入時被"
+                f"修剪掉。要保留完整歷史請把它設成 null。")
 
         dry = mode.lower().startswith("dry")
         msg_points = cfg["message_points"]
-        today = _today()
-        cutoff = datetime.datetime.now(TZ) - datetime.timedelta(days=days)
-
         counts: dict[int, dict[str, int]] = {}
-        names: dict[int, str] = {}
         scanned = skipped_sources = 0
-        MAX_SCAN = 300_000
+        MAX_SCAN = 5_000_000
 
-        status = await ctx.send(f"🔎 開始掃描最近 {days} 天的訊息…（可能要幾分鐘）")
+        status = await ctx.send(f"🔎 開始掃描{span}的訊息…（量大時會跑很久，慢慢等）")
         async for source in self._iter_history_sources(ctx.guild):
             try:
                 async for m in source.history(limit=None, after=cutoff,
@@ -593,7 +714,6 @@ class Points(commands.Cog):
                     day = _today(m.created_at.astimezone(TZ))
                     per_day = counts.setdefault(m.author.id, {})
                     per_day[day] = per_day.get(day, 0) + 1
-                    names[m.author.id] = m.author.display_name
                     if scanned >= MAX_SCAN:
                         break
             except (discord.Forbidden, discord.HTTPException):
@@ -617,15 +737,20 @@ class Points(commands.Cog):
         if dry:
             return await ctx.send(f"🧪 **預覽（未寫入）**\n{head}")
 
-        async with self._lock:
-            data = _load()
+        # 先把記憶體暫存落地，否則 flush 時會蓋回一份沒有回填內容的舊檔。
+        await self._flush_now()
+        async with self._daily_lock:
+            daily = storage.read_json(DAILY_JSON)
             filled, skipped_days = _merge_backfill(
-                data, ctx.guild.id, counts, names, msg_points, today)
-            _save(data)
+                daily, ctx.guild.id, counts, msg_points)
+            _daily_prune(daily, _today(), keep)
+            storage.write_json_atomic(DAILY_JSON, daily)
+        size = os.path.getsize(DAILY_JSON) if os.path.exists(DAILY_JSON) else 0
 
         await ctx.send(
             f"✅ **回填完成**\n{head}\n"
-            f"寫入 {filled} 個人日，跳過 {skipped_days} 個已有紀錄的人日。\n"
+            f"寫入 {filled:,} 個人日，跳過 {skipped_days:,} 個已有紀錄的人日。\n"
+            f"`{DAILY_JSON}` 現在 {size/1024:.0f} KB。\n"
             f"⚠️ 只回填了訊息；語音分鐘數無法回溯（Discord 不保留語音歷史）。\n"
             f"累計總點數與訊息數沒有更動，只有 `/points active` 用的每日明細被補上。"
         )

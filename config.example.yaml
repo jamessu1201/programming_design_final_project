@@ -57,6 +57,9 @@ points:
   message_points: 1          # 每則訊息給幾點
   active_days: 30            # /points active 預設回看幾天（上限 100）
   active_threshold: 200      # /points active 預設的點數門檻
+  history_days: null         # 每日明細保留幾天；null = 永久保留
+                             # 明細存在 json/points_daily.json，與累計數字分開，
+                             # 每 5 分鐘落地一次，所以不影響每則訊息的處理速度
   exclude_guests: true       # 自動排除 Discord 訪客（官方 IS_GUEST 旗標），不用設 ID
   excluded_roles: []         # 額外不計點的身分組 ID，訊息與語音都適用
                              # 例：excluded_roles: [123456789012345678]

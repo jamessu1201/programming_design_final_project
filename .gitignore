@@ -35,6 +35,7 @@ dashboard/audit.jsonl
 # Runtime state written by the bot (per-deployment, often contains user data)
 json/queues.json
 json/points.json
+json/points_daily.json
 json/fb_watch.json
 json/replies_state.json
 json/autodeploy.json

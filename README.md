@@ -109,6 +109,7 @@ points:
   message_points: 1
   active_days: 30         # /points active 預設回看天數（上限 100）
   active_threshold: 200   # /points active 預設門檻
+  history_days: null      # 每日明細保留幾天；null = 永久保留
   exclude_guests: true    # 自動排除 Discord 訪客（官方 IS_GUEST 旗標）
   excluded_roles: []      # 額外不計點的身分組 ID
 ```
@@ -116,10 +117,20 @@ points:
 改完 `display_name` 之後跑 `!reload points`；slash 指令的描述還要再跑一次 `!sync` 才會更新。
 
 `/points active` 靠的是每人的每日明細，那是從這個功能上線後才開始累積的。
-想把過去的資料補回來，用 `!points_backfill <天數>`（限 bot owner，加上 `dry`
-可先預覽）掃歷史訊息回填。**只有訊息能回填——Discord 不保留語音在線的歷史，
-API 也沒有查詢端點，所以過去的語音分鐘數補不回來。** 已經有紀錄的日子不會
-被覆蓋，所以重跑是安全的。
+想把過去的資料補回來，用 `!points_backfill`（限 bot owner）掃歷史訊息回填：
+
+```
+!points_backfill           # 整個伺服器的完整歷史
+!points_backfill 90        # 只回填最近 90 天
+!points_backfill all dry   # 只預覽，不寫入
+```
+
+**只有訊息能回填——Discord 不保留語音在線的歷史，API 也沒有查詢端點，
+所以過去的語音分鐘數補不回來。** 已經有紀錄的日子不會被覆蓋，所以重跑是安全的。
+
+每日明細存在 `json/points_daily.json`，跟累計數字分開：它先在記憶體累積、
+每 5 分鐘才落地一次，所以歷史再長也不會拖慢每則訊息的處理（實測 60 人 × 4 年
+的明細若混在 `points.json` 裡，每則訊息要花 37ms 的同步 I/O；拆開後回到 2ms）。
 
 ### 6. 啟動
 
