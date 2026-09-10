@@ -23,3 +23,18 @@ jobs:
       - name: Byte-compile all Python (syntax check)
         # -x excludes the local venv if one is ever committed by accident.
         run: python -m compileall -q -x '(^|/)venv/' .
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install ruff
+        run: pip install ruff==0.16.6
+
+      - name: Lint (rules configured in ruff.toml)
+        run: ruff check --output-format=github .

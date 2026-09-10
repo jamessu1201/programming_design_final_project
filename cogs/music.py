@@ -636,7 +636,7 @@ class Music(commands.Cog):
             embed = ctx.voice_state.current.create_embed(a.get("begin", time.time()))
             if embed:
                 await ctx.send(embed=embed)
-        except Exception as e:
+        except Exception:
             await ctx.send('無法顯示當前播放資訊。')
 
     @commands.command(name='pause')          
@@ -903,7 +903,7 @@ class Music(commands.Cog):
         channel = ctx.voice_state.voice.channel
         human_members = [member for member in channel.members if not member.bot]
         
-        status = f"🔊 **語音頻道狀態:**\n"
+        status = "🔊 **語音頻道狀態:**\n"
         status += f"頻道: {channel.name}\n"
         status += f"總成員: {len(channel.members)}\n"
         status += f"人類成員: {len(human_members)}\n"

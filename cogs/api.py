@@ -58,7 +58,7 @@ class Api(commands.Cog):
     @commands.command(name='weather')
     async def _weather(self,ctx:commands.Context,region=None):
         """各縣市36小時天氣預報"""
-        if(region==None):
+        if(region is None):
             await ctx.send("請輸入地區(縣市)")
             return
 
@@ -166,9 +166,11 @@ class Api(commands.Cog):
         embed.set_image(url=image_url)
         await ctx.send(embed=embed)
 
-    @commands.command(hidden=True)
-    async def ccu_csie_camp(self,ctx:commands.Context,req:str=None):
-        if(req==None):
+    @commands.command(name='imgsearch', hidden=True)
+    async def imgsearch(self,ctx:commands.Context,req:str=None):
+        """Scrape Google Images for a keyword. Fragile by nature — the query
+        string carries a stale token and Google's markup changes often."""
+        if(req is None):
             await ctx.send("type things to search")
             return
         url='https://www.google.com/search?q='+req+'&tbm=isch&sa=X&ved=2ahUKEwioipTwptP_AhVIEIgKHUkYBtQQ0pQJegQICxAB&biw=1608&bih=950&dpr=1'
@@ -182,13 +184,13 @@ class Api(commands.Cog):
     @commands.command(name='hololive')
     async def hololive(self,ctx:commands.Context,category:str=None):
         """看各位holomember的開台狀況(百鬼是要不要開台阿)"""
-        if(category==None):
+        if(category is None):
             await ctx.send("請輸入類別(live,upcoming)")
             return
         if(category=='live' or category=='upcoming'):
             api_key=os.environ.get('holodex_api_key')
 
-            if(api_key==None):
+            if(api_key is None):
                 try:
                     with open('api_key/api.txt','r') as r:
                         api_key=r.read()
@@ -210,7 +212,7 @@ class Api(commands.Cog):
                 elif(response[i]['status']=='upcoming'):
                     livestart=response[i]['start_scheduled']
                 logger.debug("livestart: %s", livestart)
-                if(livestart==None):
+                if(livestart is None):
                     livestart='結束'
                 else:
                     livestart=parser.parse(livestart)
@@ -227,7 +229,7 @@ class Api(commands.Cog):
                     embed.description=f"觀看人數:{response[i]['live_viewers']}\n{response[i]['channel']['name']}的頻道[url]({a})"
                 t=response[i]['title']
                 t=t.lower()
-                if((not 'free' in t) and (not 'chat' in t) and (not 'schedule' in t)):
+                if(('free' not in t) and ('chat' not in t) and ('schedule' not in t)):
                     await ctx.send(embed=embed)
             logger.debug("hololive list complete")
             return

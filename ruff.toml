@@ -1,0 +1,13 @@
+# Deliberately narrow: pyflakes (F) plus the pycodestyle rules that catch real
+# mistakes rather than formatting opinions (E4 imports, E7 statements,
+# E9 syntax/IO errors). This is the set the existing code passes, so CI stays a
+# signal about breakage instead of a wall of style noise on every PR.
+#
+# Widening it (import sorting, pyupgrade, bugbear...) is welcome — but as its
+# own PR that also fixes the fallout, not bundled into a feature change.
+line-length = 100
+target-version = "py313"
+exclude = ["venv", "cogs_local"]
+
+[lint]
+select = ["E4", "E7", "E9", "F"]
