@@ -27,7 +27,8 @@ DEFAULTS = {
     "emoji": "⭐",
     "voice_points_per_min": 1,
     "message_points": 1,
-    "excluded_roles": [],    # 這些身分組不計點（例如訪客）
+    "exclude_guests": True,  # 自動排除 Discord 官方的訪客（MemberFlags.guest）
+    "excluded_roles": [],    # 額外不計點的身分組 ID（自訂的訪客身分組之類的）
 }
 
 LEADERBOARD_SIZE = 15
@@ -50,11 +51,20 @@ def points_enabled(bot, guild_id) -> bool:
 
 
 def member_excluded(member, cfg) -> bool:
-    """設定在 excluded_roles 的身分組不計點（訪客之類的）。
+    """這個人該不該被排除在計點之外。訊息與語音都適用。
 
-    對訊息與語音都適用。已經累積的點數不會被動到——要清掉用
-    `/points reset <user>`。
+    兩個來源：
+    1. Discord 官方的訪客旗標 MemberFlags.guest（IS_GUEST，只能進被邀請的
+       那個語音頻道的人）——不用設定，自動辨識。
+    2. config 的 excluded_roles，給自己開的訪客身分組之類的用。
+
+    已經累積的點數不會被動到——要清掉用 `/points reset <user>`。
     """
+    if cfg.get("exclude_guests", True):
+        # User（非 Member）沒有 flags，getattr 兩層防呆。
+        if getattr(getattr(member, "flags", None), "guest", False):
+            return True
+
     excluded = cfg.get("excluded_roles") or []
     if not excluded:
         return False
@@ -227,10 +237,9 @@ class Points(commands.Cog):
             for guild in guilds:
                 afk_id = guild.afk_channel.id if guild.afk_channel else None
                 for vc in guild.voice_channels:
-                    # 被排除的身分組也不列入「頻道至少兩個真人」的計算，
-                    # 否則一個訪客陪著就能讓另一個人一直拿點。
-                    humans = [m for m in vc.members
-                              if not m.bot and not member_excluded(m, cfg)]
+                    # 被排除的人仍算在「頻道至少兩個真人」裡：訪客陪著也是陪著，
+                    # 有人作伴的那位照常累積，只是訪客自己不拿點。
+                    humans = [m for m in vc.members if not m.bot]
                     if not _voice_channel_eligible(len(humans), vc.id == afk_id):
                         continue
                     for m in humans:

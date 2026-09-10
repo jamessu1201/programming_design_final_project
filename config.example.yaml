@@ -55,8 +55,11 @@ points:
   emoji: "⭐"                 # 搭配上面名稱的 emoji
   voice_points_per_min: 1    # 待在語音每分鐘給幾點
   message_points: 1          # 每則訊息給幾點
-  excluded_roles: []         # 不計點的身分組 ID（訪客之類的），訊息與語音都適用
+  exclude_guests: true       # 自動排除 Discord 訪客（官方 IS_GUEST 旗標），不用設 ID
+  excluded_roles: []         # 額外不計點的身分組 ID，訊息與語音都適用
                              # 例：excluded_roles: [123456789012345678]
+                             # 註：被排除的人仍算在「語音頻道至少兩個真人」裡，
+                             #     所以訪客陪著時，另一位照常累積點數。
 # 註：改了 display_name 之後，slash 指令的描述要跑一次 !sync 才會更新。
 
 # ntfy 手機推播（可選）。fbwatch 關鍵字命中時，除了 Discord DM 再推一份到手機。

@@ -107,7 +107,8 @@ points:
   emoji: "⭐"
   voice_points_per_min: 1
   message_points: 1
-  excluded_roles: []      # 不計點的身分組 ID（訪客之類的）
+  exclude_guests: true    # 自動排除 Discord 訪客（官方 IS_GUEST 旗標）
+  excluded_roles: []      # 額外不計點的身分組 ID
 ```
 
 改完 `display_name` 之後跑 `!reload points`；slash 指令的描述還要再跑一次 `!sync` 才會更新。

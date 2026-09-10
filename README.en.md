@@ -113,7 +113,8 @@ points:
   emoji: "⭐"
   voice_points_per_min: 1
   message_points: 1
-  excluded_roles: []      # role IDs that earn no points (guests, etc.)
+  exclude_guests: true    # auto-exclude Discord guests (official IS_GUEST flag)
+  excluded_roles: []      # extra role IDs that earn no points
 ```
 
 After changing `display_name`, run `!reload points`; the slash command
