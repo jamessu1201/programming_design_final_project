@@ -36,6 +36,7 @@ dashboard/audit.jsonl
 json/queues.json
 json/points.json
 json/points_daily.json
+json/points_backfill_state.json
 json/fb_watch.json
 json/replies_state.json
 json/autodeploy.json
