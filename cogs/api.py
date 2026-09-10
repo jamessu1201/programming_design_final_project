@@ -12,7 +12,7 @@ from dateutil import parser
 
 logger = logging.getLogger(__name__)
 
-# !mygo 的梗圖索引。這個檔案不在 git 裡（見 README），所以缺席是正常情況——
+# !mygo 的梗圖索引。有隨 repo 附上，但使用者可能自己刪掉或換一份——缺席時
 # 只讓 !mygo 停用，不能讓整個 cog 載入失敗、把 !weather/!picture 等一起帶走。
 PIC_DATABASE_PATH = "json/pic_database.json"
 

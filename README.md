@@ -174,6 +174,7 @@ json/
   auto_replies.json     # 迷因觸發詞 + 圖片網址（可編輯）
   badword.json          # 各伺服器的禁字
   prefix.json           # 各伺服器的指令前綴
+  pic_database.json     # !mygo 梗圖索引（3163 筆）
   time.json             # 音樂播放狀態
   queues.json           # 排隊資料（執行期自動產生，已 gitignore）
   points.json           # 點數資料（執行期自動產生，已 gitignore）

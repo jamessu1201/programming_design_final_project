@@ -17,6 +17,7 @@ __pycache__/
 *.html
 !dashboard/templates/**/*.html
 *.png
+!ur_noob.png
 *.jpg
 /log*
 /less*
@@ -32,7 +33,6 @@ dashboard/audit.jsonl
 *.exe
 
 # Runtime state written by the bot (per-deployment, often contains user data)
-json/pic_database.json
 json/queues.json
 json/points.json
 json/fb_watch.json

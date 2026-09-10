@@ -183,6 +183,7 @@ json/
   auto_replies.json     # Meme trigger words + image URLs (editable)
   badword.json          # Per-server banned words
   prefix.json           # Per-server command prefixes
+  pic_database.json     # Meme index for !mygo (3163 entries)
   time.json             # Music playback state
   queues.json           # Queue data (created at runtime, gitignored)
   points.json           # Points data (created at runtime, gitignored)
