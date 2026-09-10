@@ -24,7 +24,9 @@ QUEUES_JSON = "json/queues.json"
 
 MAX_NAME = 50
 MAX_CONTENT = 500
-MAX_ITEMS = 100  # 單一 queue 上限，防濫用
+MAX_ITEMS = 100   # 單一 queue 的項目上限，防濫用
+MAX_QUEUES = 50   # 單一 guild 的 queue 數上限。少了這個，任何人都能用不同
+                  # 名稱狂打 /queue add 把 queues.json 灌到無限大。
 
 TZ = datetime.timezone(datetime.timedelta(hours=8))
 DEFAULT_COOLDOWN_DAYS = 30  # 預設冷卻一個月
@@ -60,15 +62,23 @@ def _cleanup_if_empty(data: dict, guild_id, name: str) -> None:
 
 
 def _enqueue(data: dict, guild_id, name, user_id, user_name, content, ts,
-             max_items=MAX_ITEMS):
-    """加到隊尾。回傳 (item, position 1-based)，queue 滿了回 None。"""
+             max_items=MAX_ITEMS, max_queues=MAX_QUEUES):
+    """加到隊尾。
+
+    回傳 (status, item, position 1-based)：
+      'ok'                加入成功
+      'queue_full'        這個 queue 已達 max_items
+      'too_many_queues'   這個 guild 的 queue 數已達 max_queues（且需新建）
+    """
     g = data.setdefault(str(guild_id), {})
     q = g.get(name)
     if q is None:
+        if len(g) >= max_queues:
+            return "too_many_queues", None, None
         q = {"next_id": 1, "items": []}
         g[name] = q
     if len(q["items"]) >= max_items:
-        return None
+        return "queue_full", None, None
     item = {
         "id": q["next_id"],
         "user_id": user_id,
@@ -78,7 +88,7 @@ def _enqueue(data: dict, guild_id, name, user_id, user_name, content, ts,
     }
     q["items"].append(item)
     q["next_id"] += 1
-    return item, len(q["items"])
+    return "ok", item, len(q["items"])
 
 
 def _take(data: dict, guild_id, name, item_id, user_id):
@@ -188,7 +198,16 @@ class Queue(commands.Cog):
                 if next_ready is not None and now < next_ready:
                     continue
 
-                # 到期：pop 隊頭並 tag 邀請人。
+                # 先確認頻道拿得到，再 pop。反過來的話，頻道被刪掉時隊頭已經
+                # 被移除、卻沒有任何人收到通知，那筆資料就這樣憑空消失了。
+                try:
+                    channel = self.bot.get_channel(int(channel_id)) or \
+                        await self.bot.fetch_channel(int(channel_id))
+                except Exception as e:
+                    logger.warning(
+                        "queue auto-pop: 取不到頻道 %s，保留隊頭不動：%s", channel_id, e)
+                    continue
+
                 head = _pop(data, guild_id_str, name)
                 if head is None:
                     continue
@@ -198,12 +217,6 @@ class Queue(commands.Cog):
                 dirty = True
 
                 inviter = head["user_id"]
-                try:
-                    channel = self.bot.get_channel(int(channel_id)) or \
-                        await self.bot.fetch_channel(int(channel_id))
-                except Exception as e:
-                    logger.warning("queue auto-pop: 取不到頻道 %s：%s", channel_id, e)
-                    continue
                 try:
                     await channel.send(
                         f"🔔 <@{inviter}> 冷卻期已滿，輪到你邀請的人了，請開投票！\n"
@@ -277,14 +290,17 @@ class Queue(commands.Cog):
 
         async with self._lock:
             data = _load()
-            result = _enqueue(
+            status, item, pos = _enqueue(
                 data, interaction.guild_id, name,
                 interaction.user.id, interaction.user.display_name, content, _now(),
             )
-            if result is None:
+            if status == "queue_full":
                 return await interaction.response.send_message(
                     f"**{name}** 已滿（上限 {MAX_ITEMS} 筆）。", ephemeral=True)
-            item, pos = result
+            if status == "too_many_queues":
+                return await interaction.response.send_message(
+                    f"這個伺服器的 queue 數已達上限（{MAX_QUEUES} 個），"
+                    f"請先用 `/queue clear` 刪掉不用的。", ephemeral=True)
             _save(data)
 
         await interaction.response.send_message(
@@ -507,6 +523,9 @@ class Queue(commands.Cog):
             g = data.setdefault(str(interaction.guild_id), {})
             q = g.get(name)
             if q is None:
+                if len(g) >= MAX_QUEUES:
+                    return await interaction.response.send_message(
+                        f"這個伺服器的 queue 數已達上限（{MAX_QUEUES} 個）。", ephemeral=True)
                 q = {"next_id": 1, "items": []}
                 g[name] = q
             auto = q.setdefault("auto", {})
