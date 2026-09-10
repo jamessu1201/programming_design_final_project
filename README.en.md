@@ -18,7 +18,7 @@ auto-deploy.
 | **Others** | `!poll`, `!draw`, `!banwords`, `!prefix`, `!count` | Polls, lottery, banned-word management, custom prefix |
 | **Queue** | `/queue add`, `/queue list`, `/queue top`, `/queue take`, `/queue pop`, `/queue queues`, `/queue clear`, `/queue setup`, `/queue setnext`, `/queue autooff` | Multiple named queues (slash commands + autocomplete): anyone can join, anyone can remove the head, but only your own entry elsewhere in the line. Optional cooldown auto-pops the head and tags the inviter to start a vote |
 | **LLM** | `/ask`, `/forget`, `/botchat`, `/stopchat` | Talks to any OpenAI-compatible endpoint. `/ask` is one question / one answer (images supported for vision models); @-mention the bot for chat with short-term context; `/botchat` lets two bots talk to each other in a designated channel (throttled, with a turn cap) and `/stopchat` ends it. Supports function calling: time/arithmetic, weather, DuckDuckGo search, and looking up points and queues |
-| **Points** | `/points top`, `/points view`, `/points reset`, `/points recompute` | Activity points: +1 per minute in voice, +1 per message. Leaderboard and per-user totals. Name, rates and which servers it applies to are all set in `config.yaml` |
+| **Points** | `/points top`, `/points view`, `/points active`, `/points reset`, `/points recompute` | Activity points: +1 per N minutes in voice, +1 per message. `/points active` lists everyone who hit a threshold over a rolling window (default "≥ 200 in the last 30 days"). Name, rates and which servers it applies to are all set in `config.yaml` |
 | **FB watch** | `/fbwatch` | Subscribe to keywords and get a DM when a forwarded post matches (optional ntfy push to your phone) |
 | **Conversation** | `!sendtext`, `!sendreply`, `!sendprivate` | Remote messaging (owner only) |
 | **Admin** | `!reload`, `!ra`, `!deploy`, `!autodeploy`, `!bye` | Hot-reload, git auto-deploy, shutdown |
@@ -111,8 +111,10 @@ points:
   guild_id: null            # null = every server; a guild ID = only that server
   display_name: 活躍點數     # call the leaderboard whatever you like
   emoji: "⭐"
-  voice_points_per_min: 1
+  voice_minutes_per_point: 3   # one point per N minutes in voice
   message_points: 1
+  active_days: 30         # default look-back for /points active (max 100)
+  active_threshold: 200   # default threshold for /points active
   exclude_guests: true    # auto-exclude Discord guests (official IS_GUEST flag)
   excluded_roles: []      # extra role IDs that earn no points
 ```

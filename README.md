@@ -17,7 +17,7 @@ git 自動部署。
 | **Others** | `!poll`、`!draw`、`!banwords`、`!prefix`、`!count` | 投票、抽獎、禁字管理、自訂前綴 |
 | **Queue** | `/queue add`、`/queue list`、`/queue top`、`/queue take`、`/queue pop`、`/queue queues`、`/queue clear`、`/queue setup`、`/queue setnext`、`/queue autooff` | 多具名排隊系統（slash + autocomplete）：人人可加、隊頭人人可移除、中間/尾端只能拿自己的；可開冷卻期，到期自動 pop 並 tag 邀請人開投票 |
 | **LLM** | `/ask`、`/forget`、`/botchat`、`/stopchat` | 接 OpenAI 相容端點：`/ask` 一問一答（可附圖看圖）、@機器人 聊天（短期上下文）、`/botchat` 讓兩隻機器人在指定頻道互聊（節流＋上限），`/stopchat` 喊停。支援 function calling 工具：時間/計算、天氣、DuckDuckGo 搜尋、查點數與 queue |
-| **Points** | `/points top`、`/points view`、`/points reset`、`/points recompute` | 活躍度點數：語音每分鐘 +1、訊息每則 +1，看排行榜與個人點數。名稱、費率、適用伺服器都在 `config.yaml` 設定 |
+| **Points** | `/points top`、`/points view`、`/points active`、`/points reset`、`/points recompute` | 活躍度點數：語音每 N 分鐘 +1、訊息每則 +1。`/points active` 列出指定期間內達到門檻的人（預設「最近 30 天 ≥ 200 點」）。名稱、費率、適用伺服器都在 `config.yaml` 設定 |
 | **FB watch** | `/fbwatch` | 訂閱關鍵字，命中轉貼文章時 DM 通知（可選 ntfy 手機推播） |
 | **Conversation** | `!sendtext`、`!sendreply`、`!sendprivate` | 遠端代發訊息（限 owner） |
 | **Admin** | `!reload`、`!ra`、`!deploy`、`!autodeploy`、`!bye` | 熱重載、git 自動部署、關機 |
@@ -105,8 +105,10 @@ points:
   guild_id: null          # null = 所有伺服器都啟用；填 guild ID = 只在該伺服器啟用
   display_name: 活躍點數   # 排行榜要叫什麼名字都可以
   emoji: "⭐"
-  voice_points_per_min: 1
+  voice_minutes_per_point: 3   # 語音每 N 分鐘 1 點
   message_points: 1
+  active_days: 30         # /points active 預設回看天數（上限 100）
+  active_threshold: 200   # /points active 預設門檻
   exclude_guests: true    # 自動排除 Discord 訪客（官方 IS_GUEST 旗標）
   excluded_roles: []      # 額外不計點的身分組 ID
 ```

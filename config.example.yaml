@@ -53,8 +53,10 @@ points:
   guild_id: null             # null = 所有伺服器都啟用；填 guild ID = 只在該伺服器啟用
   display_name: 活躍點數      # 排行榜/指令回覆顯示的名稱，改成你想要的
   emoji: "⭐"                 # 搭配上面名稱的 emoji
-  voice_points_per_min: 1    # 待在語音每分鐘給幾點
+  voice_minutes_per_point: 3 # 待在語音每 N 分鐘給 1 點
   message_points: 1          # 每則訊息給幾點
+  active_days: 30            # /points active 預設回看幾天（上限 100）
+  active_threshold: 200      # /points active 預設的點數門檻
   exclude_guests: true       # 自動排除 Discord 訪客（官方 IS_GUEST 旗標），不用設 ID
   excluded_roles: []         # 額外不計點的身分組 ID，訊息與語音都適用
                              # 例：excluded_roles: [123456789012345678]

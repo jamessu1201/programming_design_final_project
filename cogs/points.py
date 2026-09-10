@@ -1,12 +1,16 @@
 # -*- coding: utf-8 -*-
 """活躍度點數系統。名稱、費率與適用伺服器都在 config.yaml 的 `points:` 區塊。
 
-- 進語音每分鐘 +voice_points_per_min 點（排除 AFK 頻道 / 自己靜音或拒聽 / 頻道只剩一個真人）。
+- 進語音每 voice_minutes_per_point 分鐘 +1 點（排除 AFK 頻道 / 自己靜音或拒聽 /
+  頻道只剩一個真人）。
 - 每發一則訊息 +message_points 點（不限）。
-- /points top 看排行榜、/points view 看自己或某人、/points reset 管理員歸零。
+- 每個人另外保留最近 HISTORY_DAYS 天的每日明細，供 /points active 做滾動視窗查詢。
+- /points top 排行榜、/points view 個人、/points active 期間內達標名單、
+  /points reset 歸零、/points recompute 依現行費率重算。
 """
 from __future__ import annotations
 
+import datetime
 import logging
 
 import discord
@@ -21,12 +25,17 @@ logger = logging.getLogger(__name__)
 CONFIG_PATH = "config.yaml"
 POINTS_JSON = "json/points.json"
 
+TZ = datetime.timezone(datetime.timedelta(hours=8))
+HISTORY_DAYS = 100  # 每人保留幾天的每日明細，給 /points active 的滾動視窗用
+
 DEFAULTS = {
     "guild_id": None,        # None = 所有伺服器都啟用
     "display_name": "活躍點數",
     "emoji": "⭐",
-    "voice_points_per_min": 1,
+    "voice_minutes_per_point": 3,  # 語音每 N 分鐘給 1 點
     "message_points": 1,
+    "active_days": 30,             # /points active 預設回看幾天
+    "active_threshold": 200,       # /points active 預設門檻
     "exclude_guests": True,  # 自動排除 Discord 官方的訪客（MemberFlags.guest）
     "excluded_roles": [],    # 額外不計點的身分組 ID（自訂的訪客身分組之類的）
 }
@@ -40,8 +49,36 @@ MEDALS = {1: "🥇", 2: "🥈", 3: "🥉"}
 def points_config(bot) -> dict:
     """執行期設定。bot.config 是權威來源（!deploy 會重載它），缺的補預設。"""
     cfg = dict(DEFAULTS)
-    cfg.update((getattr(bot, "config", None) or {}).get("points") or {})
+    raw = (getattr(bot, "config", None) or {}).get("points") or {}
+    if "voice_points_per_min" in raw:
+        logger.warning(
+            "config.yaml 的 points.voice_points_per_min 已停用，"
+            "請改成 voice_minutes_per_point（語音每 N 分鐘 1 點）。目前用預設 %s。",
+            DEFAULTS["voice_minutes_per_point"])
+    cfg.update(raw)
     return cfg
+
+
+def _today(now: datetime.datetime | None = None) -> str:
+    return (now or datetime.datetime.now(TZ)).date().isoformat()
+
+
+def _prune_daily(rec: dict, today: str, keep_days: int = HISTORY_DAYS) -> None:
+    """丟掉太舊的每日分桶。ISO 日期字串的字典序就是時間序。"""
+    daily = rec.get("daily")
+    if not daily or len(daily) <= keep_days:
+        return
+    cutoff = (datetime.date.fromisoformat(today)
+              - datetime.timedelta(days=keep_days)).isoformat()
+    for d in [d for d in daily if d < cutoff]:
+        del daily[d]
+
+
+def _recent_points(rec: dict, today: str, days: int) -> int:
+    """最近 days 天（含今天）累積的點數。沒有每日明細的舊資料回 0。"""
+    start = (datetime.date.fromisoformat(today)
+             - datetime.timedelta(days=days - 1)).isoformat()
+    return sum(v for d, v in (rec.get("daily") or {}).items() if d >= start)
 
 
 def points_enabled(bot, guild_id) -> bool:
@@ -108,18 +145,37 @@ def _save(data: dict) -> None:
 
 # ── 點數核心邏輯（純函式，operate on passed dict） ──
 
-def _award(data: dict, guild_id, member_id, name, *, points, messages=0, voice_min=0):
-    """對某使用者累加點數與明細，回傳新的總點數。"""
+def _award(data: dict, guild_id, member_id, name, *, points=0, messages=0,
+           voice_min=0, minutes_per_point=None, day=None):
+    """累加明細，回傳這次實際加到的點數。
+
+    語音採「每 minutes_per_point 分鐘 1 點」：先累加分鐘數，再看跨過了幾個
+    整數倍才給點。這樣 3 分鐘 1 點不需要把點數變成小數。
+
+    給了 day 就同時記進 rec["daily"][day]，/points active 的滾動視窗靠它。
+    """
     g = data.setdefault(str(guild_id), {})
     rec = g.get(str(member_id))
     if rec is None:
-        rec = {"name": name, "points": 0, "messages": 0, "voice_min": 0}
+        rec = {"name": name, "points": 0, "messages": 0, "voice_min": 0, "daily": {}}
         g[str(member_id)] = rec
     rec["name"] = name
-    rec["points"] += points
+    rec.setdefault("daily", {})   # 舊資料沒有這個欄位
+
+    gained = points
+    if voice_min:
+        before = rec["voice_min"]
+        rec["voice_min"] = before + voice_min
+        if minutes_per_point:
+            gained += (rec["voice_min"] // minutes_per_point
+                       - before // minutes_per_point)
+
     rec["messages"] += messages
-    rec["voice_min"] += voice_min
-    return rec["points"]
+    rec["points"] += gained
+    if gained and day:
+        rec["daily"][day] = rec["daily"].get(day, 0) + gained
+        _prune_daily(rec, day)
+    return gained
 
 
 def _voice_channel_eligible(num_humans: int, is_afk: bool) -> bool:
@@ -231,6 +287,7 @@ class Points(commands.Cog):
             guilds = [guild] if guild else []
         if not guilds:
             return
+        today = _today()
         async with self._lock:
             data = _load()
             changed = False
@@ -248,7 +305,9 @@ class Points(commands.Cog):
                         vs = m.voice
                         if vs and _member_voice_eligible(vs.self_mute, vs.self_deaf):
                             _award(data, guild.id, m.id, m.display_name,
-                                   points=cfg["voice_points_per_min"], voice_min=1)
+                                   voice_min=1,
+                                   minutes_per_point=cfg["voice_minutes_per_point"],
+                                   day=today)
                             changed = True
             if changed:
                 _save(data)
@@ -276,7 +335,7 @@ class Points(commands.Cog):
             data = _load()
             _award(data, message.guild.id, message.author.id,
                    message.author.display_name,
-                   points=cfg["message_points"], messages=1)
+                   points=cfg["message_points"], messages=1, day=_today())
             _save(data)
 
     # --- slash 指令 ---
@@ -336,6 +395,56 @@ class Points(commands.Cog):
         await interaction.response.send_message(
             embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
+    @group.command(name="active", description=f"列出一段期間內{POINTS_NAME}超過門檻的人")
+    @app_commands.describe(
+        days="回看幾天（預設看設定值，通常 30）",
+        threshold="點數門檻（預設看設定值，通常 200）",
+    )
+    async def active(self, interaction: discord.Interaction,
+                     days: int = None, threshold: int = None):
+        if not await self._guard(interaction):
+            return
+        cfg = points_config(self.bot)
+        days = cfg["active_days"] if days is None else days
+        threshold = cfg["active_threshold"] if threshold is None else threshold
+        if not 1 <= days <= HISTORY_DAYS:
+            return await interaction.response.send_message(
+                f"天數請介於 1～{HISTORY_DAYS}（每日明細只保留這麼久）。", ephemeral=True)
+        if threshold < 0:
+            return await interaction.response.send_message(
+                "門檻不能是負數。", ephemeral=True)
+
+        today = _today()
+        g = _load().get(str(interaction.guild_id), {})
+        rows = []
+        for uid, rec in g.items():
+            got = _recent_points(rec, today, days)
+            if got >= threshold:
+                rows.append((uid, rec, got))
+        rows.sort(key=lambda r: r[2], reverse=True)
+
+        if not rows:
+            return await interaction.response.send_message(
+                f"最近 {days} 天沒有人的{POINTS_NAME}達到 **{threshold}** 點。\n"
+                f"（每日明細是從這個功能上線後才開始記的，之前的資料算不進來）",
+                ephemeral=True)
+
+        lines = [
+            f"**{i}.** <@{uid}> — **{got}** 點"
+            for i, (uid, rec, got) in enumerate(rows[:25], start=1)
+        ]
+        if len(rows) > 25:
+            lines.append(f"…還有 {len(rows) - 25} 人")
+
+        embed = discord.Embed(
+            title=f"{POINTS_EMOJI} 最近 {days} 天 {POINTS_NAME} ≥ {threshold}",
+            description="\n".join(lines),
+            color=discord.Color.gold(),
+        )
+        embed.set_footer(text=f"共 {len(rows)} 人達標")
+        await interaction.response.send_message(
+            embed=embed, allowed_mentions=discord.AllowedMentions.none())
+
     @group.command(name="reset", description="歸零某人的點數；不填 user 則清空整個伺服器（限 bot owner）")
     @app_commands.describe(user="要歸零的人（不填＝清空整個伺服器）")
     async def reset(self, interaction: discord.Interaction, user: discord.Member = None):
@@ -376,21 +485,21 @@ class Points(commands.Cog):
                 "只有 bot owner 能重算點數。", ephemeral=True)
 
         cfg = points_config(self.bot)
-        voice_rate = cfg["voice_points_per_min"]
+        mpp = max(1, int(cfg["voice_minutes_per_point"]))
         msg_rate = cfg["message_points"]
         async with self._lock:
             data = _load()
             g = data.get(str(interaction.guild_id), {})
             for rec in g.values():
-                rec["points"] = (rec.get("voice_min", 0) * voice_rate
+                rec["points"] = (rec.get("voice_min", 0) // mpp
                                  + rec.get("messages", 0) * msg_rate)
             if g:
                 _save(data)
             count = len(g)
 
         await interaction.response.send_message(
-            f"🧮 已用「語音 {voice_rate} 點/分 + 訊息 {msg_rate} 點/則」"
-            f"重算 {count} 人的點數。",
+            f"🧮 已用「語音 {mpp} 分鐘 1 點 + 訊息 {msg_rate} 點/則」"
+            f"重算 {count} 人的點數（每日明細不受影響）。",
             allowed_mentions=discord.AllowedMentions.none())
 
     # --- 統一錯誤處理 ---
