@@ -72,9 +72,11 @@ def _extract_text_tool_calls(content: str) -> list:
 # 工具會讀到的既有資料檔（與對應 cog 同路徑）。
 POINTS_JSON = "json/points.json"
 QUEUES_JSON = "json/queues.json"
-# 中央氣象署 36 小時預報（沿用 cogs/api.py 既有的 key；之後若換 key 一起改）。
-CWB_KEY = "CWB-1461ABE2-E884-48EC-BBDE-F082E02B2D30"
-CWB_URL = "https://opendata.cwb.gov.tw/api/v1/rest/datastore/F-C0032-001"
+# 中央氣象署 36 小時預報。金鑰走專案慣例：環境變數優先，否則讀檔；沒有就回覆未設定。
+# 免費申請：https://opendata.cwa.gov.tw/
+CWA_KEY_ENV = "cwa_api_key"
+CWA_KEY_FILE = "api_key/cwa.txt"
+CWA_URL = "https://opendata.cwa.gov.tw/api/v1/rest/datastore/F-C0032-001"
 DDG_URL = "https://html.duckduckgo.com/html/"
 
 
@@ -152,12 +154,13 @@ def _safe_eval(expr: str) -> str:
         return f"無法計算「{expr}」：{e}"
 
 
-def _load_key() -> Optional[str]:
-    key = os.environ.get(KEY_ENV)
+def _load_key(env_name: str = KEY_ENV, path: str = KEY_FILE) -> Optional[str]:
+    """環境變數優先，否則讀檔；兩者都沒有就回 None。"""
+    key = os.environ.get(env_name)
     if key:
         return key.strip()
     try:
-        with open(KEY_FILE, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8") as f:
             return f.read().strip()
     except FileNotFoundError:
         return None
@@ -305,8 +308,12 @@ class LLM(commands.Cog):
         region = (region or "").strip()
         if not region:
             return "請提供完整縣市名稱（如『臺北市』）。"
-        r = await self._client.get(CWB_URL, params={
-            "Authorization": CWB_KEY, "format": "JSON", "locationName": region})
+        # 每次呼叫才讀，之後補上金鑰檔不用重載 cog。
+        cwa_key = _load_key(CWA_KEY_ENV, CWA_KEY_FILE)
+        if not cwa_key:
+            return f"天氣查詢未設定：請設環境變數 {CWA_KEY_ENV} 或建立 {CWA_KEY_FILE}。"
+        r = await self._client.get(CWA_URL, params={
+            "Authorization": cwa_key, "format": "JSON", "locationName": region})
         r.raise_for_status()
         locs = r.json().get("records", {}).get("location", [])
         if not locs:

@@ -66,20 +66,29 @@ brew install ffmpeg
 
 ### 4. Secret files
 
-These files are **not** in git. You must create them yourself:
+**The bot token is the only one that's actually required.** Everything else is
+optional — without it, only the command that needs it replies "not configured".
+The rest of the bot runs normally and no cog fails to load.
+
+None of these are in git; create the ones you need yourself:
 
 ```bash
 mkdir -p api_key private
 ```
 
-| File | Content | Required |
-|------|---------|----------|
-| `api_key/token.txt` | Discord bot token (or env var `bot_token`) | Yes |
-| `private/owners.txt` | Comma-separated owner user IDs (e.g. `123456,789012`) | Yes |
-| `api_key/access_key.txt` | Unsplash API access key | For `!picture` |
-| `api_key/api.txt` | Holodex API key | For `!hololive` |
-| `api_key/llm.txt` | OpenAI-compatible LLM API key (or env var `llm_api_key`) | For `/ask` and @-mention chat |
-| `api_key/ntfy.txt` | ntfy auth token (or env var `ntfy_token`) | Only if your ntfy server requires auth |
+| File (or env var) | Content | What happens without it |
+|------|---------|------|
+| `api_key/token.txt` (`bot_token`) | Discord bot token | **Won't start** — the only hard requirement |
+| `private/owners.txt` | Comma-separated owner user IDs (e.g. `123456,789012`) | Falls back to your Discord application's owner, so you usually don't need this file |
+| `api_key/cwa.txt` (`cwa_api_key`) | Taiwan CWA open-data key ([free signup](https://opendata.cwa.gov.tw/)) | `!weather` and the LLM weather tool report it's unconfigured |
+| `api_key/access_key.txt` (`picture_access_key`) | Unsplash API access key | `!picture` replies `no picture_access_key` |
+| `api_key/api.txt` (`holodex_api_key`) | Holodex API key | `!hololive` replies `no holodex_api_key` |
+| `api_key/llm.txt` (`llm_api_key`) | OpenAI-compatible LLM API key | `/ask` and @-mention chat report they're unconfigured |
+| `api_key/ntfy.txt` (`ntfy_token`) | ntfy auth token | Only needed if your ntfy server has auth enabled |
+| `api_key/oauth.json` | Discord OAuth config for the web dashboard (see below) | The dashboard doesn't start; the bot itself is unaffected |
+
+You don't need to create `api_key/session.key` — the dashboard generates it on
+first start.
 
 ### 5. Configuration
 

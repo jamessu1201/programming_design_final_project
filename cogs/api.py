@@ -62,7 +62,18 @@ class Api(commands.Cog):
             await ctx.send("請輸入地區(縣市)")
             return
 
-        target=requests.get("https://opendata.cwb.gov.tw/api/v1/rest/datastore/F-C0032-001?Authorization=CWB-1461ABE2-E884-48EC-BBDE-F082E02B2D30&format=JSON").json()
+        cwa_key = os.environ.get('cwa_api_key')
+        if cwa_key is None:
+            try:
+                with open('api_key/cwa.txt', 'r') as r:
+                    cwa_key = r.read().strip()
+            except FileNotFoundError:
+                await ctx.send("no cwa_api_key（免費申請：https://opendata.cwa.gov.tw/）")
+                return
+
+        target=requests.get(
+            "https://opendata.cwa.gov.tw/api/v1/rest/datastore/F-C0032-001",
+            params={"Authorization": cwa_key, "format": "JSON"}, timeout=10).json()
         for i in range(len(target['records']['location'])):
             if(target['records']['location'][i]['locationName']==region):
                 dd=target['records']['location'][i]['weatherElement']

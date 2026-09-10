@@ -65,20 +65,27 @@ brew install ffmpeg
 
 ### 4. 金鑰檔案
 
-這些檔案**不在 git 裡**，要自己建立：
+**真正必要的只有 bot token 一個。** 其餘全部都是可選的——沒有的話，只有用到它的那個指令
+會回一句「未設定」，機器人其他功能照常運作，cog 也不會載入失敗。
+
+這些檔案都**不在 git 裡**，要自己建立：
 
 ```bash
 mkdir -p api_key private
 ```
 
-| 檔案 | 內容 | 必要性 |
-|------|------|--------|
-| `api_key/token.txt` | Discord bot token（或用環境變數 `bot_token`） | 必要 |
-| `private/owners.txt` | 逗號分隔的 owner 使用者 ID（例：`123456,789012`） | 必要 |
-| `api_key/access_key.txt` | Unsplash API access key | `!picture` 需要 |
-| `api_key/api.txt` | Holodex API key | `!hololive` 需要 |
-| `api_key/llm.txt` | OpenAI 相容端點的 API key（或用環境變數 `llm_api_key`） | `/ask` 與 @機器人 聊天需要 |
-| `api_key/ntfy.txt` | ntfy 驗證 token（或用環境變數 `ntfy_token`） | 只有你的 ntfy server 需要驗證時才用 |
+| 檔案（或環境變數） | 內容 | 沒有的話會怎樣 |
+|------|------|------|
+| `api_key/token.txt`（`bot_token`） | Discord bot token | **啟動失敗**——唯一必要的 |
+| `private/owners.txt` | 逗號分隔的 owner 使用者 ID（例：`123456,789012`） | 自動改用你 Discord Application 的擁有者當 owner，所以通常不用建 |
+| `api_key/cwa.txt`（`cwa_api_key`） | 中央氣象署 opendata 金鑰（[免費申請](https://opendata.cwa.gov.tw/)） | `!weather` 與 LLM 的天氣工具回報未設定 |
+| `api_key/access_key.txt`（`picture_access_key`） | Unsplash API access key | `!picture` 回 `no picture_access_key` |
+| `api_key/api.txt`（`holodex_api_key`） | Holodex API key | `!hololive` 回 `no holodex_api_key` |
+| `api_key/llm.txt`（`llm_api_key`） | OpenAI 相容端點的 API key | `/ask` 與 @機器人 聊天回報未設定 |
+| `api_key/ntfy.txt`（`ntfy_token`） | ntfy 驗證 token | 只有你的 ntfy server 有開驗證時才需要 |
+| `api_key/oauth.json` | 網頁後台的 Discord OAuth 設定（見下方章節） | 後台不啟動，機器人本身照常 |
+
+`api_key/session.key` 不用自己建——後台第一次啟動時會自己產生。
 
 ### 5. 設定檔
 
