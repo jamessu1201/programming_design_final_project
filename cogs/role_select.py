@@ -87,23 +87,26 @@ class RoleSelect(commands.Cog):
     @commands.command(name="add_role_option", hidden=True)
     @commands.is_owner()
     async def add_role_option(self, ctx: commands.Context, role: discord.Role, *, label: str = None):
-        """快速新增一個身分組選項到 config（需要重新 !setup_roles）"""
-        roles_config = self.cfg.setdefault("role_select", [])
-        for r in roles_config:
-            if r["id"] == role.id:
+        """產生要貼進 config.yaml 的 role_select 片段（貼完再 !setup_roles）
+
+        這裡刻意不直接改寫 config.yaml：yaml.dump 會把整份設定檔的註解與排序
+        全部抹掉，而 config.yaml 正是使用者照著 config.example.yaml 註解填出來的。
+        """
+        for r in self.cfg.get("role_select") or []:
+            if r.get("id") == role.id:
                 return await ctx.send(f"**{role.name}** 已經在列表中")
 
-        roles_config.append({
-            "id": role.id,
-            "label": label or role.name,
-            "emoji": "📌",
-        })
-
-        import yaml
-        with open("config.yaml", "w", encoding="utf-8") as f:
-            yaml.dump(self.cfg, f, allow_unicode=True, default_flow_style=False)
-
-        await ctx.send(f"已新增 **{role.name}**，請執行 `!setup_roles` 重新發送訊息")
+        snippet = "\n".join([
+            "role_select:",
+            f"  - id: {role.id}",
+            f"    label: {label or role.name}",
+            '    emoji: "📌"',
+        ])
+        await ctx.send(
+            "把下面這段加進 `config.yaml` 的 `role_select:` 清單，"
+            "然後執行 `!reload role_select` 與 `!setup_roles`：\n"
+            f"```yaml\n{snippet}\n```"
+        )
 
 
 async def setup(bot):

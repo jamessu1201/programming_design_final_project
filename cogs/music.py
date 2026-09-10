@@ -116,6 +116,9 @@ class YTDLSource(discord.PCMVolumeTransformer):
                 '--no-playlist',
                 '--quiet',
                 '--no-warnings',
+                # `--` 讓後面的字串一律當成位置參數。少了它，使用者只要送
+                # `!play --exec=...` 就能對 yt-dlp 下選項（等同在主機上執行指令）。
+                '--',
                 search
             ]
             
@@ -163,6 +166,7 @@ class YTDLSource(discord.PCMVolumeTransformer):
                 '--get-title',
                 '--no-playlist',
                 '--quiet',
+                '--',                      # 同上：擋掉使用者輸入被當成選項
                 search
             ]
             
@@ -181,6 +185,7 @@ class YTDLSource(discord.PCMVolumeTransformer):
                             '--dump-json',
                             '--no-playlist',
                             '--quiet',
+                            '--',
                             search
                         ]
                         
@@ -786,7 +791,7 @@ class Music(commands.Cog):
             await ctx.send("正在處理播放清單，請稍候...")
             try:
                 # 使用命令行獲取播放清單
-                cmd = [YTDLP, '--flat-playlist', '--get-id', search]
+                cmd = [YTDLP, '--flat-playlist', '--get-id', '--', search]
                 loop = asyncio.get_event_loop()
                 result = await loop.run_in_executor(
                     None, lambda: subprocess.run(cmd, capture_output=True, text=True, timeout=60)
@@ -873,6 +878,7 @@ class Music(commands.Cog):
                     '--get-title',
                     '--no-playlist',
                     '--quiet',
+                    '--',
                     url
                 ]
                 

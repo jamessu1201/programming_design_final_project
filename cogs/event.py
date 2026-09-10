@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import os
 import re
 import string
 import logging
@@ -13,6 +14,9 @@ import storage
 logger = logging.getLogger(__name__)
 
 BADWORD_JSON = "json/badword.json"
+# 可選的本機圖片；不在 git 裡（*.png 被 ignore）。沒有就跳過這個梗，不要讓
+# on_message 中途拋例外——那會連帶讓同一則訊息的禁字過濾整個不執行。
+NOOB_IMAGE = "ur_noob.png"
 AUTO_REPLIES_JSON = "json/auto_replies.json"
 REPLIES_STATE_JSON = "json/replies_state.json"
 
@@ -81,8 +85,8 @@ class Event(commands.Cog):
         replies_on = self.replies_enabled.get(guild_id, True) if guild_id else True
 
         if replies_on:
-            if "菜" in message.content:
-                await message.reply(file=discord.File("ur_noob.png"))
+            if "菜" in message.content and os.path.isfile(NOOB_IMAGE):
+                await message.reply(file=discord.File(NOOB_IMAGE))
 
             if "我只是" in message.content or "只有我" in message.content or "這我" in message.content:
                 await message.add_reaction(lookup("REGIONAL INDICATOR SYMBOL LETTER M"))
@@ -109,9 +113,17 @@ class Event(commands.Cog):
             return
 
         for word in words[guild_id]:
-            formatted_word = f"[{re.escape(separators)}]*".join(list(word))
-            regex_true = re.compile(fr"{formatted_word}", re.IGNORECASE)
-            regex_false = re.compile(fr"([{re.escape(excluded)}]+{re.escape(word)})|({re.escape(word)}[{re.escape(excluded)}]+)", re.IGNORECASE)
+            # 每個字元都要 escape：禁字若含 ( ) 等 regex 元字元，未 escape 會讓
+            # re.compile 拋 re.error，連帶讓這個伺服器的自動回應與過濾全部停擺。
+            formatted_word = f"[{re.escape(separators)}]*".join(re.escape(c) for c in word)
+            try:
+                regex_true = re.compile(formatted_word, re.IGNORECASE)
+            except re.error:
+                logger.warning("禁字 %r 無法編譯成 regex，已略過", word)
+                continue
+            regex_false = re.compile(
+                fr"([{re.escape(excluded)}]+{re.escape(word)})|({re.escape(word)}[{re.escape(excluded)}]+)",
+                re.IGNORECASE)
             profane = False
             if (regex_true.search(message.content) is not None
                     and regex_false.search(message.content) is None) or word in message.content:

@@ -4,8 +4,6 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import random
-import json
-from pathlib import Path
 
 import storage
 
@@ -171,7 +169,7 @@ class Other(commands.Cog):
         await ctx.send(f"目前{channel.name}裡面有{count}人")
 
     @commands.command(name="unbanwords")
-    # @commands.has_permissions(manage_guild=True)
+    @commands.has_permissions(manage_guild=True)
     async def _unbanwords(self, ctx: commands.Context, word: str = None):
         """解ban特定的字"""
         if word is None:
@@ -198,7 +196,7 @@ class Other(commands.Cog):
             await ctx.send("沒有被ban的單字喔!")
 
     @commands.command(name="banwords")
-    # @commands.has_permissions(manage_guild=True)
+    @commands.has_permissions(manage_guild=True)
     async def _banwords(self, ctx: commands.Context, word=None):
         """ban特定的字"""
         if word is None:
@@ -223,11 +221,9 @@ class Other(commands.Cog):
             await ctx.send("設定成功!")
 
     @commands.command(name="banwordlist")
-    # @commands.has_permissions(manage_guild=True)
     async def _banwordlist(self, ctx: commands.Context):
         """banlist"""
-        with open(Path(BADWORD_JSON), "r", encoding="utf-8") as f:
-            words = json.load(f)
+        words = storage.read_json(BADWORD_JSON)
         guild_id = str(ctx.guild.id)
         if guild_id not in words:
             await ctx.send("目前還沒禁任何文字")
@@ -345,6 +341,7 @@ class Other(commands.Cog):
 
     @commands.command(name="prefix")
     @commands.guild_only()
+    @commands.has_permissions(manage_guild=True)
     async def setprefix(self, ctx, *, prefixes=""):
         """設定指令前綴（1–20 字元，不可含空白）"""
         prefixes = prefixes.strip()

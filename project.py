@@ -21,8 +21,15 @@ DEFAULT_DESCRIPTION = "多功能 Discord 機器人"
 # they get loaded like any other. Missing directory = silently skipped.
 COG_PACKAGES = ("cogs", "cogs_local")
 
-with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-    config = yaml.safe_load(f)
+try:
+    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f) or {}
+except FileNotFoundError:
+    logger.error(
+        "%s not found. Copy the template first:  cp config.example.yaml %s",
+        CONFIG_PATH, CONFIG_PATH,
+    )
+    raise SystemExit(1)
 
 token = os.environ.get("bot_token")
 if token is None:
