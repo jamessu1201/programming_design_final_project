@@ -178,6 +178,34 @@ def _award(data: dict, guild_id, member_id, name, *, points=0, messages=0,
     return gained
 
 
+def _merge_backfill(data: dict, guild_id, counts: dict, names: dict,
+                    msg_points: int, today: str):
+    """把回填掃到的 {uid: {day: 訊息數}} 併進每日明細。
+
+    已經有紀錄的日子一律不動——那些是即時累積來的、裡面含語音點數，覆蓋
+    下去會把語音的部分弄丟；同時這也讓重跑同一段期間是冪等的。
+
+    回傳 (寫入的人日數, 跳過的人日數)。
+    """
+    g = data.setdefault(str(guild_id), {})
+    filled = skipped = 0
+    for uid, per_day in counts.items():
+        rec = g.get(str(uid))
+        if rec is None:
+            rec = {"name": names.get(uid, str(uid)), "points": 0,
+                   "messages": 0, "voice_min": 0, "daily": {}}
+            g[str(uid)] = rec
+        rec.setdefault("daily", {})
+        for day, n in per_day.items():
+            if day in rec["daily"]:
+                skipped += 1
+                continue
+            rec["daily"][day] = n * msg_points
+            filled += 1
+        _prune_daily(rec, today)
+    return filled, skipped
+
+
 def _voice_channel_eligible(num_humans: int, is_afk: bool) -> bool:
     """頻道層級資格：至少兩個真人、且不是 AFK 頻道。"""
     return num_humans >= 2 and not is_afk
@@ -501,6 +529,106 @@ class Points(commands.Cog):
             f"🧮 已用「語音 {mpp} 分鐘 1 點 + 訊息 {msg_rate} 點/則」"
             f"重算 {count} 人的點數（每日明細不受影響）。",
             allowed_mentions=discord.AllowedMentions.none())
+
+    # --- 從歷史訊息回填每日明細（限 bot owner） ---
+
+    async def _iter_history_sources(self, guild):
+        """所有掃得到歷史訊息的地方：文字/語音頻道本身、它們的討論串
+        （含已封存的）、以及論壇底下的貼文。"""
+        for ch in list(guild.text_channels) + list(guild.voice_channels):
+            yield ch
+            for th in getattr(ch, "threads", ()):
+                yield th
+            if hasattr(ch, "archived_threads"):
+                try:
+                    async for th in ch.archived_threads(limit=None):
+                        yield th
+                except (discord.Forbidden, discord.HTTPException):
+                    pass
+        for fch in getattr(guild, "forums", ()):
+            for th in fch.threads:
+                yield th
+            try:
+                async for th in fch.archived_threads(limit=None):
+                    yield th
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+
+    @commands.command(name="points_backfill", hidden=True)
+    @commands.is_owner()
+    @commands.guild_only()
+    async def points_backfill(self, ctx: commands.Context, days: int = 90,
+                              mode: str = ""):
+        """從歷史訊息回填每日明細。加上 `dry` 只預覽不寫入。
+
+        用法：`!points_backfill 90` / `!points_backfill 90 dry`
+
+        只回填訊息。**語音無法回填**——Discord 不保留語音在線的歷史，
+        API 也沒有任何查詢端點，所以過去的語音分鐘數永遠補不回來。
+        """
+        cfg = points_config(self.bot)
+        if not points_enabled(self.bot, ctx.guild.id):
+            return await ctx.send("此功能未在這個伺服器啟用。")
+        if not 1 <= days <= HISTORY_DAYS:
+            return await ctx.send(f"天數請介於 1～{HISTORY_DAYS}。")
+
+        dry = mode.lower().startswith("dry")
+        msg_points = cfg["message_points"]
+        today = _today()
+        cutoff = datetime.datetime.now(TZ) - datetime.timedelta(days=days)
+
+        counts: dict[int, dict[str, int]] = {}
+        names: dict[int, str] = {}
+        scanned = skipped_sources = 0
+        MAX_SCAN = 300_000
+
+        status = await ctx.send(f"🔎 開始掃描最近 {days} 天的訊息…（可能要幾分鐘）")
+        async for source in self._iter_history_sources(ctx.guild):
+            try:
+                async for m in source.history(limit=None, after=cutoff,
+                                              oldest_first=True):
+                    scanned += 1
+                    if m.author.bot or member_excluded(m.author, cfg):
+                        continue
+                    day = _today(m.created_at.astimezone(TZ))
+                    per_day = counts.setdefault(m.author.id, {})
+                    per_day[day] = per_day.get(day, 0) + 1
+                    names[m.author.id] = m.author.display_name
+                    if scanned >= MAX_SCAN:
+                        break
+            except (discord.Forbidden, discord.HTTPException):
+                skipped_sources += 1
+                continue
+            if scanned >= MAX_SCAN:
+                await ctx.send(f"⚠️ 已達掃描上限 {MAX_SCAN:,} 則，提前停止。")
+                break
+            if scanned and scanned % 20_000 < 200:
+                try:
+                    await status.edit(content=f"🔎 掃描中…已讀 {scanned:,} 則")
+                except discord.HTTPException:
+                    pass
+
+        total_msgs = sum(sum(d.values()) for d in counts.values())
+        head = (f"掃了 {scanned:,} 則訊息，其中 {total_msgs:,} 則可計點，"
+                f"涉及 {len(counts)} 人。")
+        if skipped_sources:
+            head += f"（{skipped_sources} 個頻道/討論串沒有讀取權限，已略過）"
+
+        if dry:
+            return await ctx.send(f"🧪 **預覽（未寫入）**\n{head}")
+
+        async with self._lock:
+            data = _load()
+            filled, skipped_days = _merge_backfill(
+                data, ctx.guild.id, counts, names, msg_points, today)
+            _save(data)
+
+        await ctx.send(
+            f"✅ **回填完成**\n{head}\n"
+            f"寫入 {filled} 個人日，跳過 {skipped_days} 個已有紀錄的人日。\n"
+            f"⚠️ 只回填了訊息；語音分鐘數無法回溯（Discord 不保留語音歷史）。\n"
+            f"累計總點數與訊息數沒有更動，只有 `/points active` 用的每日明細被補上。"
+        )
 
     # --- 統一錯誤處理 ---
 

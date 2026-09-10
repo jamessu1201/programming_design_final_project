@@ -115,6 +115,12 @@ points:
 
 改完 `display_name` 之後跑 `!reload points`；slash 指令的描述還要再跑一次 `!sync` 才會更新。
 
+`/points active` 靠的是每人的每日明細，那是從這個功能上線後才開始累積的。
+想把過去的資料補回來，用 `!points_backfill <天數>`（限 bot owner，加上 `dry`
+可先預覽）掃歷史訊息回填。**只有訊息能回填——Discord 不保留語音在線的歷史，
+API 也沒有查詢端點，所以過去的語音分鐘數補不回來。** 已經有紀錄的日子不會
+被覆蓋，所以重跑是安全的。
+
 ### 6. 啟動
 
 ```bash

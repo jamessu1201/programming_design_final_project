@@ -122,6 +122,13 @@ points:
 After changing `display_name`, run `!reload points`; the slash command
 descriptions additionally need a `!sync`.
 
+`/points active` reads per-user daily buckets, which only start accumulating
+once this feature is deployed. To fill in the past, run
+`!points_backfill <days>` (bot owner only; add `dry` to preview) — it scans
+message history. **Messages only: Discord keeps no history of voice presence
+and exposes no API for it, so past voice minutes cannot be recovered.** Days
+that already have data are never overwritten, so re-running is safe.
+
 ### 6. Run
 
 ```bash
