@@ -36,6 +36,8 @@ POINTS_JSON = "json/points.json"
 # 而 storage 是同步 I/O，那會直接卡住 event loop。
 DAILY_JSON = "json/points_daily.json"
 LOGS_DIR = "logs"   # !points_import_logs 掃這底下的 *.jsonl
+# !points_backfill 的續傳檔。掃完整歷史可能要跑好幾小時，中途掛掉不該白跑。
+BACKFILL_STATE = "json/points_backfill_state.json"
 
 TZ = datetime.timezone(datetime.timedelta(hours=8))
 FLUSH_MINUTES = 5   # 每日明細在記憶體累積，每隔這麼久才寫一次檔
@@ -720,7 +722,7 @@ class Points(commands.Cog):
         """從歷史訊息回填每日明細。加上 `dry` 只預覽不寫入。
 
         用法：`!points_backfill`（整個伺服器的歷史）、`!points_backfill 90`、
-        `!points_backfill all dry`
+        `!points_backfill all dry`、`!points_backfill all resume`（接續上次）
 
         只回填訊息。**語音無法回填**——Discord 不保留語音在線的歷史，
         API 也沒有任何查詢端點，所以過去的語音分鐘數永遠補不回來。
@@ -747,36 +749,67 @@ class Points(commands.Cog):
                 f"設定 points.history_days = {keep}，掃了全部歷史也會在寫入時被"
                 f"修剪掉。要保留完整歷史請把它設成 null。")
 
-        dry = mode.lower().startswith("dry")
+        mode_l = mode.lower()
+        dry = mode_l.startswith("dry")
+        resume = "resume" in mode_l
         msg_points = cfg["message_points"]
-        counts: dict[int, dict[str, int]] = {}
-        scanned = skipped_sources = 0
         MAX_SCAN = 5_000_000
 
-        status = await ctx.send(f"🔎 開始掃描{span}的訊息…（量大時會跑很久，慢慢等）")
+        resumed = storage.read_json(BACKFILL_STATE) if resume else {}
+        if resumed and resumed.get("guild_id") != str(ctx.guild.id):
+            resumed = {}   # 別把別的伺服器的進度接上來
+        counts: dict[int, dict[str, int]] = {
+            int(k): v for k, v in (resumed.get("counts") or {}).items()}
+        scanned = int(resumed.get("scanned") or 0)
+        skipped_sources = 0
+
+        status = await ctx.send(
+            f"🔎 開始掃描{span}的訊息…（量大時會跑好幾小時，慢慢等）\n"
+            f"中途掛掉可用 `!points_backfill {days} resume` 從上次進度接著跑。")
+        done = set(resumed.get("done") or [])
+        if done:
+            await ctx.send(f"↩️ 續傳：已完成 {len(done)} 個來源，接著跑剩下的。")
+
+        async def save_state():
+            storage.write_json_atomic(BACKFILL_STATE, {
+                "guild_id": str(ctx.guild.id),
+                "span": span,
+                "done": sorted(done),
+                "scanned": scanned,
+                "counts": {str(k): v for k, v in counts.items()},
+            })
+
         async for source in self._iter_history_sources(ctx.guild):
+            if source.id in done:
+                continue
+            src_name = getattr(source, "name", source.id)
             try:
                 async for m in source.history(limit=None, after=cutoff,
                                               oldest_first=True):
                     scanned += 1
-                    if m.author.bot or member_excluded(m.author, cfg):
-                        continue
-                    day = _today(m.created_at.astimezone(TZ))
-                    per_day = counts.setdefault(m.author.id, {})
-                    per_day[day] = per_day.get(day, 0) + 1
+                    if not (m.author.bot or member_excluded(m.author, cfg)):
+                        day = _today(m.created_at.astimezone(TZ))
+                        per_day = counts.setdefault(m.author.id, {})
+                        per_day[day] = per_day.get(day, 0) + 1
+                    # 掃一百萬則要跑好幾小時，中途得看得到進度——Discord 訊息每
+                    # 2 萬則更新一次，log 也記一筆（docker logs 看得到）。
+                    if scanned % 20_000 == 0:
+                        logger.info("backfill: 已讀 %s 則，目前在 #%s", scanned, src_name)
+                        try:
+                            await status.edit(
+                                content=f"🔎 掃描中…已讀 {scanned:,} 則（目前 #{src_name}）")
+                        except discord.HTTPException:
+                            pass
                     if scanned >= MAX_SCAN:
                         break
             except (discord.Forbidden, discord.HTTPException):
                 skipped_sources += 1
                 continue
+            done.add(source.id)
+            await save_state()   # 每掃完一個來源存一次，掛掉最多只丟這一個
             if scanned >= MAX_SCAN:
                 await ctx.send(f"⚠️ 已達掃描上限 {MAX_SCAN:,} 則，提前停止。")
                 break
-            if scanned and scanned % 20_000 < 200:
-                try:
-                    await status.edit(content=f"🔎 掃描中…已讀 {scanned:,} 則")
-                except discord.HTTPException:
-                    pass
 
         total_msgs = sum(sum(d.values()) for d in counts.values())
         head = (f"掃了 {scanned:,} 則訊息，其中 {total_msgs:,} 則可計點，"
@@ -796,6 +829,10 @@ class Points(commands.Cog):
             _daily_prune(daily, _today(), keep)
             storage.write_json_atomic(DAILY_JSON, daily)
         size = os.path.getsize(DAILY_JSON) if os.path.exists(DAILY_JSON) else 0
+        try:
+            os.remove(BACKFILL_STATE)   # 成功寫入才清掉續傳檔
+        except OSError:
+            pass
 
         await ctx.send(
             f"✅ **回填完成**\n{head}\n"
