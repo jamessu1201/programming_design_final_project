@@ -60,6 +60,24 @@ class Auto(commands.Cog):
         self.lol_reminder.start()
         self.contest_check.start()
 
+    async def _channel(self, key: str):
+        """取設定裡的頻道；ID 為 0 或未設代表停用（config.example.yaml 的約定）。
+
+        少了這層，全新安裝照著範例設定跑，每個排程任務都會對頻道 0 發 404。
+        """
+        cid = (self.cfg.get("channels") or {}).get(key)
+        if not cid:
+            logger.debug("channels.%s 未設定，略過這個任務", key)
+            return None
+        try:
+            return self.bot.get_channel(cid) or await self.bot.fetch_channel(cid)
+        except discord.HTTPException as e:
+            logger.warning("找不到 channels.%s (%s)：%s", key, cid, e)
+            return None
+
+    def _role_id(self, key: str):
+        return (self.cfg.get("roles") or {}).get(key)
+
     def is_task_enabled(self, name: str) -> bool:
         return self._task_state.get(name, True)
 
@@ -86,9 +104,11 @@ class Auto(commands.Cog):
         if not self.is_task_enabled("contest_check"):
             return
         now = datetime.datetime.now(datetime.timezone.utc)
+        channel = await self._channel("leetcode")
+        if channel is None:
+            return
         contests = get_upcoming_contests()
-        channel = await self.bot.fetch_channel(self.cfg["channels"]["leetcode"])
-        role_id = self.cfg["roles"]["leetcode_contest"]
+        role_id = self._role_id("leetcode_contest")
 
         for c in contests:
             title = c["title"]
@@ -124,8 +144,10 @@ class Auto(commands.Cog):
     @commands.is_owner()
     async def test_contest(self, ctx: commands.Context):
         """測試比賽提醒和討論串（會發真的訊息，測完手動刪）"""
-        channel = await self.bot.fetch_channel(self.cfg["channels"]["leetcode"])
-        role_id = self.cfg["roles"]["leetcode_contest"]
+        channel = await self._channel("leetcode")
+        if channel is None:
+            return await ctx.send("channels.leetcode 未設定。")
+        role_id = self._role_id("leetcode_contest")
         title = "Test Contest（測試用）"
         await channel.send(
             f"<@&{role_id}> **{title}** 將在 30 分鐘後開始（10:30）！\n"
@@ -154,7 +176,9 @@ class Auto(commands.Cog):
             logger.info("leetcode skipped (disabled)")
             return
         logger.info("leetcode time")
-        channel = await self.bot.fetch_channel(self.cfg["channels"]["leetcode"])
+        channel = await self._channel("leetcode")
+        if channel is None:
+            return
         result = leetcode_main()
         if isinstance(result, str):
             await channel.send(result)
@@ -181,10 +205,13 @@ class Auto(commands.Cog):
     async def happy_birthday(self):
         if not self.is_task_enabled("happy_birthday"):
             return
-        channel = await self.bot.fetch_channel(self.cfg["channels"]["birthday"])
-        for role_id in self.cfg["roles"]["birthday"]:
+        channel = await self._channel("birthday")
+        if channel is None:
+            return
+        for role_id in (self._role_id("birthday") or []):
             await channel.send(f"<@&{role_id}>")
-        await channel.send(f'<@&{self.cfg["roles"]["birthday_ping"]}> 生日快樂🎉')
+        ping = self._role_id("birthday_ping")
+        await channel.send(f"<@&{ping}> 生日快樂🎉" if ping else "生日快樂🎉")
         await channel.send("https://giphy.com/gifs/xTcnSSsbe4hhZBvV6M")
 
     @happy_birthday.before_loop
@@ -197,8 +224,11 @@ class Auto(commands.Cog):
     async def lol_reminder(self):
         if not self.is_task_enabled("lol_reminder"):
             return
-        channel = await self.bot.fetch_channel(self.cfg["channels"]["lol"])
-        await channel.send(f'<@&{self.cfg["roles"]["lol"]}> 一把')
+        channel = await self._channel("lol")
+        if channel is None:
+            return
+        lol_role = self._role_id("lol")
+        await channel.send(f"<@&{lol_role}> 一把" if lol_role else "一把")
 
     @lol_reminder.before_loop
     async def before_lol_reminder(self):

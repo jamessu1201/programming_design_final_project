@@ -104,8 +104,10 @@ def main():
 
     @bot.event
     async def on_raw_reaction_add(payload):
-        reaction_channel = config["channels"]["reaction_delete"]
-        if payload.channel_id == reaction_channel:
+        # .get 一路到底：這個 handler 每個 reaction 都會跑，設定少一個 key
+        # 不該讓它每次都拋 KeyError。0/未設 = 停用。
+        reaction_channel = (config.get("channels") or {}).get("reaction_delete")
+        if reaction_channel and payload.channel_id == reaction_channel:
             if payload.emoji.name == "⏭":
                 channel = bot.get_channel(payload.channel_id)
                 message = await channel.fetch_message(payload.message_id)

@@ -236,7 +236,10 @@ class Other(commands.Cog):
     async def test(self, ctx: commands.Context):
         """test"""
         cfg = self.bot.config
-        channel = await self.bot.fetch_channel(cfg["channels"]["leetcode"])
+        cid = (cfg.get("channels") or {}).get("leetcode")
+        if not cid:
+            return await ctx.send("channels.leetcode 未設定。")
+        channel = await self.bot.fetch_channel(cid)
         await channel.create_thread(
             name="測試", auto_archive_duration=4320,
             type=discord.ChannelType.public_thread,
