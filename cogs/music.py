@@ -1,12 +1,15 @@
 # -*- coding: utf-8 -*-
 import asyncio
 import functools
+import ipaddress
 import itertools
 import logging
 import math
 import os
 import random
+import socket
 import time
+from urllib.parse import urlparse
 import discord
 from discord.ext import commands
 import shutil
@@ -14,6 +17,8 @@ import subprocess
 import sys
 from async_timeout import timeout
 import json
+
+import storage
 
 logger = logging.getLogger(__name__)
 
@@ -27,16 +32,50 @@ _project_ffmpeg = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(_
 FFMPEG = _project_ffmpeg if os.path.isfile(_project_ffmpeg) else "ffmpeg"
 logger.info("Using ffmpeg at: %s", FFMPEG)
 
-time_json = "json/time.json"
+# 播放起始時間，用來畫進度條。**必須按 guild 分開存**——原本是單一個
+# 全域 "begin"，機器人同時在兩個伺服器放歌時，A 的進度條會吃到 B 的時間。
+TIME_JSON = "json/time.json"
 
-try:
-    with open(time_json, "rb") as f:
-        pass
-except FileNotFoundError:
-    logger.info("time.json does not exist, creating")
-    os.makedirs("json", exist_ok=True)
-    with open(time_json, "w") as f:
-        json.dump({}, f)
+
+async def record_begin(guild_id, begin: float) -> None:
+    async with storage.lock_for(TIME_JSON):
+        data = storage.read_json(TIME_JSON)
+        data[str(guild_id)] = {"begin": begin}
+        storage.write_json_atomic(TIME_JSON, data)
+
+
+def read_begin(guild_id, default: float) -> float:
+    entry = storage.read_json(TIME_JSON).get(str(guild_id))
+    if isinstance(entry, dict):
+        return entry.get("begin", default)
+    return default
+
+
+def url_is_safe(search: str) -> bool:
+    """擋掉指向內網/回送位址的網址。
+
+    yt-dlp 會真的去連使用者給的網址，所以沒有這層的話，任何成員都能用
+    `!play http://10.0.0.5/...` 把機器人當成內網探測器（實測會連上）。
+    純關鍵字不受影響——那會被加上 ytsearch: 前綴。
+    """
+    if not search.lower().startswith("http"):
+        return True   # 純關鍵字：下游會加上 ytsearch: 前綴
+    parsed = urlparse(search)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        return False
+    try:
+        infos = socket.getaddrinfo(parsed.hostname, None)
+    except (socket.gaierror, UnicodeError):
+        return False
+    for info in infos:
+        try:
+            ip = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            return False
+        if (ip.is_private or ip.is_loopback or ip.is_link_local
+                or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
+            return False
+    return True
 
 
 class VoiceError(Exception):
@@ -192,7 +231,6 @@ class YTDLSource(discord.PCMVolumeTransformer):
                         info_result = subprocess.run(info_cmd, capture_output=True, text=True, timeout=30)
                         
                         if info_result.returncode == 0:
-                            import json
                             info_data = json.loads(info_result.stdout)
                             
                             return {
@@ -450,41 +488,34 @@ class VoiceState:
                         # 如果還在播放，繼續等待
                         continue
 
-                # 設定音量並開始播放
-                self.current.source.volume = self._volume
-                self.voice.play(self.current.source, after=self.play_next_song)
-                begin = time.time()
-                
-                # 記錄播放時間
+                # 這整段包 try：任何一個環節丟例外（例如播放期間被 !leave
+                # 斷線、self.voice 變成 None）都會讓這個 task 直接死掉，
+                # 該伺服器的音樂就再也不會前進。失敗要 continue，不能往下
+                # 卡在 next.wait()——那個 Event 永遠不會被 set。
                 try:
-                    with open(time_json, "r") as f:
-                        a = json.load(f)
-                    a["begin"] = begin
-                    with open(time_json, "w") as r:
-                        json.dump(a, r)
-                except Exception as e:
-                    logger.warning("JSON 檔案錯誤: %s", e)
-                
-                # 發送播放資訊
-                embed = self.current.create_embed(begin)
-                if embed:
-                    await self.current.source.channel.send(embed=embed)
+                    self.current.source.volume = self._volume
+                    self.voice.play(self.current.source, after=self.play_next_song)
+                    begin = time.time()
+                    await record_begin(self._ctx.guild.id, begin)
+
+                    embed = self.current.create_embed(begin)
+                    if embed:
+                        await self.current.source.channel.send(embed=embed)
+                except Exception:
+                    logger.exception("開始播放失敗，跳過這首")
+                    continue
             
             else:
                 # 循環播放模式
                 if self.current:
-                    self.now = discord.FFmpegPCMAudio(self.current.source.stream_url, **YTDLSource.FFMPEG_OPTIONS)
-                    self.voice.play(self.now, after=self.play_next_song)
-                    begin = time.time()
-                    
                     try:
-                        with open(time_json, "r") as f:
-                            a = json.load(f)
-                        a["begin"] = begin
-                        with open(time_json, "w") as r:
-                            json.dump(a, r)
-                    except Exception as e:
-                        logger.warning("JSON 檔案錯誤: %s", e)
+                        self.now = discord.FFmpegPCMAudio(
+                            self.current.source.stream_url, **YTDLSource.FFMPEG_OPTIONS)
+                        self.voice.play(self.now, after=self.play_next_song)
+                        await record_begin(self._ctx.guild.id, time.time())
+                    except Exception:
+                        logger.exception("循環播放失敗")
+                        continue
 
             await self.next.wait()
 
@@ -636,12 +667,12 @@ class Music(commands.Cog):
             return await ctx.send('目前沒有播放任何音樂。')
             
         try:
-            with open(time_json, "r") as f:
-                a = json.load(f)
-            embed = ctx.voice_state.current.create_embed(a.get("begin", time.time()))
+            begin = read_begin(ctx.guild.id, time.time())
+            embed = ctx.voice_state.current.create_embed(begin)
             if embed:
                 await ctx.send(embed=embed)
         except Exception:
+            logger.exception("!now 失敗")
             await ctx.send('無法顯示當前播放資訊。')
 
     @commands.command(name='pause')          
@@ -688,7 +719,10 @@ class Music(commands.Cog):
         if not ctx.author.voice or not ctx.author.voice.channel:
             return await ctx.send('您必須在語音頻道中才能使用此指令。')
             
-        channel = ctx.author.voice.channel
+        # 要算「機器人所在頻道」的人數。原本算的是下指令者自己的頻道，
+        # 所以隨便找個空頻道進去就能讓 user_count < 3 成立、直接跳過。
+        bot_channel = ctx.voice_state.voice.channel if ctx.voice_state.voice else None
+        channel = bot_channel or ctx.author.voice.channel
         user_count = sum(1 for member in channel.members if not member.bot)
 
         if not ctx.voice_state.is_playing:
@@ -779,6 +813,12 @@ class Music(commands.Cog):
         """播音樂，可以使用URL也可以用關鍵字"""
         await self.ensure_voice_state(ctx)
         
+        if search is not None:
+            safe = await asyncio.get_event_loop().run_in_executor(
+                None, url_is_safe, search)
+            if not safe:
+                return await ctx.send("這個網址不能播（不允許指向內部網路的位址）。")
+
         if search is None:
             if ctx.voice_state.voice and ctx.voice_state.voice.is_paused():
                 ctx.voice_state.voice.resume()
@@ -854,8 +894,9 @@ class Music(commands.Cog):
                 raise
 
     @commands.command(name='testt')
+    @commands.is_owner()
     async def test_ytdlp(self, ctx, *, url: str = None):
-        """測試 yt-dlp 是否正常工作"""
+        """測試 yt-dlp 是否正常工作（限 owner：會原樣回傳 yt-dlp 的錯誤輸出）"""
         try:
             # 測試版本
             loop = asyncio.get_event_loop()
