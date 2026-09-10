@@ -13,7 +13,10 @@
 """
 from __future__ import annotations
 
+import asyncio
 import datetime
+import glob
+import json
 import logging
 import os
 
@@ -32,6 +35,7 @@ POINTS_JSON = "json/points.json"
 # read-modify-write 從 ~2ms 漲到 37ms（60 人 4 年）甚至 127ms（200 人 4 年），
 # 而 storage 是同步 I/O，那會直接卡住 event loop。
 DAILY_JSON = "json/points_daily.json"
+LOGS_DIR = "logs"   # !points_import_logs 掃這底下的 *.jsonl
 
 TZ = datetime.timezone(datetime.timedelta(hours=8))
 FLUSH_MINUTES = 5   # 每日明細在記憶體累積，每隔這麼久才寫一次檔
@@ -115,6 +119,52 @@ def _daily_recent(daily: dict, guild_id, today: str, days: int) -> dict:
         if got:
             out[uid] = got
     return out
+
+
+def _count_from_logs(paths, guild_id, tz=TZ):
+    """從訊息記錄檔統計每人每日的訊息「則數」（不看內容）。
+
+    每行是一個 JSON 物件，需要 ts / guild_id / user_id 三個欄位——就是
+    cogs_local/chatlog.py 寫出來的格式。用 message_id 去重，同一則被記兩次
+    （例如同一個頻道被記錄過兩輪）不會重複計算。
+
+    回傳 (counts, 讀到的行數, 壞行數, 重複行數)。
+    """
+    counts: dict = {}
+    seen = set()
+    lines = bad = dup = 0
+    gid = str(guild_id)
+    for path in paths:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    lines += 1
+                    try:
+                        rec = json.loads(line)
+                        if str(rec.get("guild_id")) != gid:
+                            continue
+                        uid = int(rec["user_id"])
+                        ts = datetime.datetime.fromisoformat(rec["ts"])
+                    except (ValueError, KeyError, TypeError):
+                        bad += 1
+                        continue
+                    mid = rec.get("message_id")
+                    if mid is not None:
+                        if mid in seen:
+                            dup += 1
+                            continue
+                        seen.add(mid)
+                    if ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=tz)
+                    day = _today(ts.astimezone(tz))
+                    per_day = counts.setdefault(uid, {})
+                    per_day[day] = per_day.get(day, 0) + 1
+        except OSError:
+            continue
+    return counts, lines, bad, dup
 
 
 def _migrate_inline_daily(points_data: dict, daily: dict) -> int:
@@ -753,6 +803,72 @@ class Points(commands.Cog):
             f"`{DAILY_JSON}` 現在 {size/1024:.0f} KB。\n"
             f"⚠️ 只回填了訊息；語音分鐘數無法回溯（Discord 不保留語音歷史）。\n"
             f"累計總點數與訊息數沒有更動，只有 `/points active` 用的每日明細被補上。"
+        )
+
+    @commands.command(name="points_import_logs", hidden=True)
+    @commands.is_owner()
+    @commands.guild_only()
+    async def points_import_logs(self, ctx: commands.Context, mode: str = ""):
+        """從本機訊息記錄檔統計「每天幾則」，回填每日明細。加 `dry` 只預覽。
+
+        讀 logs/**/*.jsonl，每行需要 ts / guild_id / user_id 三個欄位——就是
+        cogs_local/chatlog.py 寫出來的格式。只數則數，不看訊息內容。
+
+        跟 !points_backfill 的差別：這個是讀本機檔案，秒完、不打 Discord API，
+        但只涵蓋記錄檔存在的那段期間；!points_backfill 走 API 能拿到完整歷史
+        但很慢。兩個都遵守「已有紀錄的日子不覆蓋」，可以先跑這個再跑那個。
+        """
+        cfg = points_config(self.bot)
+        if not points_enabled(self.bot, ctx.guild.id):
+            return await ctx.send("此功能未在這個伺服器啟用。")
+
+        paths = sorted(glob.glob(os.path.join(LOGS_DIR, "**", "*.jsonl"),
+                                 recursive=True))
+        if not paths:
+            return await ctx.send(f"`{LOGS_DIR}/` 底下找不到任何 .jsonl 記錄檔。")
+
+        loop = asyncio.get_event_loop()
+        counts, lines, bad, dup = await loop.run_in_executor(
+            None, _count_from_logs, paths, ctx.guild.id)
+
+        # 記錄檔只有 user_id，訪客判定要靠現在的成員資料；查不到就照算。
+        dropped = 0
+        for uid in list(counts):
+            member = ctx.guild.get_member(uid)
+            if member is not None and member_excluded(member, cfg):
+                del counts[uid]
+                dropped += 1
+
+        total = sum(sum(d.values()) for d in counts.values())
+        days_seen = {d for per in counts.values() for d in per}
+        head = (f"讀了 {len(paths)} 個檔案 / {lines:,} 行，統計出 {total:,} 則、"
+                f"{len(counts)} 人、橫跨 {len(days_seen)} 天"
+                f"（{min(days_seen)} ~ {max(days_seen)}）。" if days_seen else
+                f"讀了 {len(paths)} 個檔案 / {lines:,} 行，沒有這個伺服器的資料。")
+        if bad:
+            head += f" 略過 {bad} 行壞資料。"
+        if dup:
+            head += f" 去重 {dup} 行。"
+        if dropped:
+            head += f" 排除 {dropped} 位訪客。"
+
+        if not counts:
+            return await ctx.send(head)
+        if mode.lower().startswith("dry"):
+            return await ctx.send(f"🧪 **預覽（未寫入）**\n{head}")
+
+        await self._flush_now()
+        async with self._daily_lock:
+            daily = storage.read_json(DAILY_JSON)
+            filled, skipped = _merge_backfill(
+                daily, ctx.guild.id, counts, cfg["message_points"])
+            _daily_prune(daily, _today(), cfg["history_days"])
+            storage.write_json_atomic(DAILY_JSON, daily)
+
+        await ctx.send(
+            f"✅ **匯入完成**\n{head}\n"
+            f"寫入 {filled:,} 個人日，跳過 {skipped:,} 個已有紀錄的人日。\n"
+            f"只回填了訊息則數；語音無法回溯。累計總點數與訊息數沒有更動。"
         )
 
     # --- 統一錯誤處理 ---

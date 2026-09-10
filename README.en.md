@@ -128,10 +128,20 @@ once this feature is deployed. To fill in the past, run `!points_backfill`
 (bot owner only):
 
 ```
-!points_backfill           # the server's entire history
+!points_backfill           # via the Discord API, the server's entire history
 !points_backfill 90        # just the last 90 days
 !points_backfill all dry   # preview without writing
+
+!points_import_logs        # reads local logs/**/*.jsonl instead — instant, no API
+!points_import_logs dry    # preview
 ```
+
+`!points_import_logs` only counts messages per day; it never looks at their
+content. Each log line needs `ts` / `guild_id` / `user_id`, and `message_id`
+is used to de-duplicate. It is far faster than the API scan but only covers
+the period the logs span. Both refuse to overwrite days that already have
+data, so you can run the fast one first and backfill the earlier period
+through the API afterwards.
 
 **Messages only: Discord keeps no history of voice presence and exposes no API
 for it, so past voice minutes cannot be recovered.** Days that already have

@@ -120,10 +120,18 @@ points:
 想把過去的資料補回來，用 `!points_backfill`（限 bot owner）掃歷史訊息回填：
 
 ```
-!points_backfill           # 整個伺服器的完整歷史
+!points_backfill           # 走 Discord API，掃整個伺服器的完整歷史
 !points_backfill 90        # 只回填最近 90 天
 !points_backfill all dry   # 只預覽，不寫入
+
+!points_import_logs        # 改讀本機的 logs/**/*.jsonl，秒完、不打 API
+!points_import_logs dry    # 只預覽
 ```
+
+`!points_import_logs` 只數「每天幾則」，不看訊息內容；記錄檔每行需要
+`ts` / `guild_id` / `user_id` 三個欄位，並用 `message_id` 去重。它比走 API
+的版本快非常多，但只涵蓋記錄檔存在的那段期間。兩個都遵守「已有紀錄的日子
+不覆蓋」，所以可以先跑快的、再用 API 的補齊更早的部分。
 
 **只有訊息能回填——Discord 不保留語音在線的歷史，API 也沒有查詢端點，
 所以過去的語音分鐘數補不回來。** 已經有紀錄的日子不會被覆蓋，所以重跑是安全的。
