@@ -364,19 +364,19 @@ class LLM(commands.Cog):
         g = storage.read_json(POINTS_JSON).get(str(ctx.get("guild_id")), {})
         if not g:
             return "這個伺服器還沒有點數資料。"
-        ranked = sorted(g.values(), key=lambda r: r.get("points", 0), reverse=True)
+        ranked = sorted(g.values(), key=points_cog.total_points, reverse=True)
         if user:
             u = str(user).strip().lower()
             for i, rec in enumerate(ranked, 1):
                 if u in rec.get("name", "").lower():
-                    return (f"{rec['name']}：{rec['points']} 點（第 {i} 名，"
+                    return (f"{rec['name']}：{points_cog.total_points(rec)} 點（第 {i} 名，"
                             f"訊息 {rec.get('messages', 0)} 則、語音 {rec.get('voice_min', 0)} 分）")
             return f"找不到名字含「{user}」的人。"
         try:
             n = max(1, min(int(top_n), 15))
         except (TypeError, ValueError):
             n = 10
-        lines = [f"{i}. {r.get('name', '?')} — {r.get('points', 0)} 點"
+        lines = [f"{i}. {r.get('name', '?')} — {points_cog.total_points(r)} 點"
                  for i, r in enumerate(ranked[:n], 1)]
         return "點數排行榜：\n" + "\n".join(lines)
 

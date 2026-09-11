@@ -147,6 +147,19 @@ through the API afterwards.
 for it, so past voice minutes cannot be recovered.** Days that already have
 data are never overwritten, so re-running is safe.
 
+Both commands only fill in the daily buckets; the running totals behind
+`/points top` stay put, because every message since the points cog went live
+was already counted once. To fold the pre-launch history into the totals:
+
+```
+!points_apply_history 2026-06-15 dry   # your points cog's launch date, preview
+!points_apply_history 2026-06-15
+```
+
+It takes only the days *before* that date and writes them to separate
+`history_points` / `history_messages` fields (overwrite, not add — so
+re-running is idempotent). Displayed totals = live counters + those fields.
+
 Daily buckets live in `json/points_daily.json`, separate from the running
 totals: they accumulate in memory and are flushed every 5 minutes, so however
 long the history gets it never slows down per-message handling (measured: 60

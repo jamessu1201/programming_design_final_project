@@ -53,15 +53,16 @@ async def leaderboard(
     enabled = points_cog.points_enabled(bot, guild_id)
     if enabled:
         g = _load().get(str(guild_id), {})
-        board = sorted(g.items(), key=lambda kv: kv[1]["points"], reverse=True)
+        board = sorted(g.items(), key=lambda kv: points_cog.total_points(kv[1]),
+                       reverse=True)
         for rank, (uid, rec) in enumerate(board, start=1):
             rows.append({
                 "rank": rank,
                 "user_id": uid,
                 "name": _resolve_name(bot, guild, uid, rec),
-                "points": rec.get("points", 0),
+                "points": points_cog.total_points(rec),
                 "voice_min": rec.get("voice_min", 0),
-                "messages": rec.get("messages", 0),
+                "messages": points_cog.total_messages(rec),
             })
     return request.app.state.templates.TemplateResponse(
         request,
