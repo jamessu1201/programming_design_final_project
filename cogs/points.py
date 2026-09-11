@@ -311,10 +311,24 @@ def _member_voice_eligible(self_mute: bool, self_deaf: bool) -> bool:
     return not (self_mute or self_deaf)
 
 
+def total_points(rec: dict) -> int:
+    """顯示用的總點數 = 即時累積 + 從歷史訊息回填的部分。
+
+    兩者分開存的原因：即時那份是點數系統上線後一則一則加起來的，歷史那份是
+    事後掃回來的。混在同一個欄位的話，重跑回填就會重複累加、而且無從還原。
+    分開之後 `!points_apply_history` 可以直接覆寫歷史欄位，天生冪等。
+    """
+    return rec.get("points", 0) + rec.get("history_points", 0)
+
+
+def total_messages(rec: dict) -> int:
+    return rec.get("messages", 0) + rec.get("history_messages", 0)
+
+
 def _leaderboard(data: dict, guild_id):
     """回傳依點數由高到低排序的 [(user_id, record), ...]。"""
     g = data.get(str(guild_id), {})
-    return sorted(g.items(), key=lambda kv: kv[1]["points"], reverse=True)
+    return sorted(g.items(), key=lambda kv: total_points(kv[1]), reverse=True)
 
 
 # ── 排行榜分頁器 ──
@@ -343,8 +357,8 @@ class LeaderboardView(discord.ui.View):
         for rank, (uid, rec) in enumerate(self.board[start:start + self.PER_PAGE], start=start + 1):
             tag = MEDALS.get(rank, f"**{rank}.**")
             lines.append(
-                f"{tag} <@{uid}> — **{rec['points']}** 點"
-                f"（🎙️{rec['voice_min']} 分 / 💬{rec['messages']} 則）"
+                f"{tag} <@{uid}> — **{total_points(rec)}** 點"
+                f"（🎙️{rec.get('voice_min', 0)} 分 / 💬{total_messages(rec)} 則）"
             )
         embed = discord.Embed(
             title=f"{POINTS_EMOJI} {POINTS_NAME}排行榜",
@@ -679,6 +693,7 @@ class Points(commands.Cog):
             data = _load()
             g = data.get(str(interaction.guild_id), {})
             for rec in g.values():
+                # 只重算即時累積的部分；history_points 是回填來的，不受費率影響
                 rec["points"] = (rec.get("voice_min", 0) // mpp
                                  + rec.get("messages", 0) * msg_rate)
             if g:
@@ -905,8 +920,79 @@ class Points(commands.Cog):
         await ctx.send(
             f"✅ **匯入完成**\n{head}\n"
             f"寫入 {filled:,} 個人日，跳過 {skipped:,} 個已有紀錄的人日。\n"
-            f"只回填了訊息則數；語音無法回溯。累計總點數與訊息數沒有更動。"
+            f"只回填了訊息則數；語音無法回溯。累計總點數暫時不動——"
+            f"要併進總點數請跑 `!points_apply_history <點數系統上線日>`。"
         )
+
+    @commands.command(name="points_apply_history", hidden=True)
+    @commands.is_owner()
+    @commands.guild_only()
+    async def points_apply_history(self, ctx: commands.Context,
+                                   before: str = None, mode: str = ""):
+        """把 `before` 之前的每日明細併進總點數。加 `dry` 只預覽。
+
+        用法：`!points_apply_history 2026-06-15`
+
+        `before` 要填**點數系統開始即時計點的那一天**。那天之後的訊息早就一則
+        一則加進累計數字了，再加一次就是重複計算——所以只取那天之前的。
+
+        寫進獨立的 history_points / history_messages 欄位（覆寫而非累加），
+        所以重跑同一個日期結果完全相同。顯示的總點數 = 即時累積 + 這兩個欄位。
+        """
+        if not points_enabled(self.bot, ctx.guild.id):
+            return await ctx.send("此功能未在這個伺服器啟用。")
+        if not before:
+            return await ctx.send(
+                "要指定分界日：`!points_apply_history YYYY-MM-DD`\n"
+                "填點數系統開始計點的那一天，那天（含）之後的不會被併入。")
+        try:
+            cutoff = datetime.date.fromisoformat(before.strip()).isoformat()
+        except ValueError:
+            return await ctx.send("日期格式請用 `YYYY-MM-DD`。")
+
+        cfg = points_config(self.bot)
+        msg_points = max(1, int(cfg["message_points"]))
+        await self._flush_now()
+        daily = storage.read_json(DAILY_JSON).get(str(ctx.guild.id)) or {}
+        if not daily:
+            return await ctx.send(
+                "還沒有每日明細，先跑 `!points_import_logs` 或 `!points_backfill`。")
+
+        hist = {}
+        for uid, per_day in daily.items():
+            got = sum(v for d, v in per_day.items() if d < cutoff)
+            if got:
+                hist[uid] = got
+
+        if not hist:
+            return await ctx.send(f"{cutoff} 之前沒有任何每日明細可以併入。")
+
+        preview = (f"{cutoff} 之前共 {sum(hist.values()):,} 點、{len(hist)} 人。"
+                   f"（{cutoff} 當天及之後的不動，那些已經在累計數字裡）")
+        if mode.lower().startswith("dry"):
+            return await ctx.send(f"🧪 **預覽（未寫入）**\n{preview}")
+
+        async with self._lock:
+            data = _load()
+            g = data.setdefault(str(ctx.guild.id), {})
+            for uid, got in hist.items():
+                rec = g.get(uid)
+                if rec is None:
+                    rec = {"name": str(uid), "points": 0, "messages": 0,
+                           "voice_min": 0}
+                    g[uid] = rec
+                # 覆寫而非累加 → 重跑冪等
+                rec["history_points"] = got
+                rec["history_messages"] = got // msg_points
+            _save(data)
+
+        board = _leaderboard(_load(), ctx.guild.id)
+        top = "\n".join(
+            f"  {i}. <@{uid}> — {total_points(rec):,} 點"
+            for i, (uid, rec) in enumerate(board[:3], start=1))
+        await ctx.send(
+            f"✅ **已併入歷史**\n{preview}\n目前前三名：\n{top}",
+            allowed_mentions=discord.AllowedMentions.none())
 
     # --- 統一錯誤處理 ---
 
