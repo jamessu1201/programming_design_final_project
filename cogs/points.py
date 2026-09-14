@@ -78,19 +78,38 @@ def _today(now: datetime.datetime | None = None) -> str:
     return (now or datetime.datetime.now(TZ)).date().isoformat()
 
 
-# ── 每日明細（結構：{guild_id: {user_id: {"YYYY-MM-DD": 點數}}}）──
+# ── 每日明細 ──
+# 結構：{guild_id: {user_id: {"YYYY-MM-DD": {"v": 語音點, "t": 文字點}}}}
+# 舊格式一天是純 int（語音＋文字合併、無法回拆）——讀取時一律當文字，新資料才
+# 會正確分開。_day_vt 把兩種格式都正規化成 (voice, text)。
 
-def _daily_add(daily: dict, guild_id, member_id, day: str, points: int) -> None:
+def _day_vt(val):
+    if isinstance(val, dict):
+        return val.get("v", 0), val.get("t", 0)
+    return 0, int(val or 0)   # 舊的合併 int → 當文字
+
+
+def _day_total(val) -> int:
+    v, t = _day_vt(val)
+    return v + t
+
+
+def _daily_add(daily: dict, guild_id, member_id, day: str, *,
+               voice: int = 0, text: int = 0) -> None:
+    if not (voice or text):
+        return
     per_user = daily.setdefault(str(guild_id), {}).setdefault(str(member_id), {})
-    per_user[day] = per_user.get(day, 0) + points
+    v, t = _day_vt(per_user.get(day, 0))
+    per_user[day] = {"v": v + voice, "t": t + text}
 
 
 def _daily_merge(dst: dict, src: dict) -> None:
-    """把 src 的點數累加進 dst（用來把記憶體暫存併進檔案內容）。"""
+    """把 src 的每日點數累加進 dst（把記憶體暫存併進檔案內容）。"""
     for gid, users in src.items():
         for uid, per_day in users.items():
-            for day, pts in per_day.items():
-                _daily_add(dst, gid, uid, day, pts)
+            for day, val in per_day.items():
+                v, t = _day_vt(val)
+                _daily_add(dst, gid, uid, day, voice=v, text=t)
 
 
 def _daily_prune(daily: dict, today: str, keep_days) -> int:
@@ -112,14 +131,19 @@ def _daily_prune(daily: dict, today: str, keep_days) -> int:
 
 
 def _daily_recent(daily: dict, guild_id, today: str, days: int) -> dict:
-    """回傳 {user_id: 最近 days 天（含今天）的點數}，0 的不列入。"""
+    """回傳 {user_id: (語音點, 文字點)}，最近 days 天（含今天）；兩者皆 0 不列入。"""
     start = (datetime.date.fromisoformat(today)
              - datetime.timedelta(days=days - 1)).isoformat()
     out = {}
     for uid, per_day in (daily.get(str(guild_id)) or {}).items():
-        got = sum(v for d, v in per_day.items() if d >= start)
-        if got:
-            out[uid] = got
+        v = t = 0
+        for d, val in per_day.items():
+            if d >= start:
+                dv, dt = _day_vt(val)
+                v += dv
+                t += dt
+        if v or t:
+            out[uid] = (v, t)
     return out
 
 
@@ -182,7 +206,7 @@ def _migrate_inline_daily(points_data: dict, daily: dict) -> int:
                 continue
             inline = rec.pop("daily") or {}
             for day, pts in inline.items():
-                _daily_add(daily, gid, uid, day, pts)
+                _daily_add(daily, gid, uid, day, text=pts)  # 舊 inline 是合併值 → 當文字
             touched += 1
     return touched
 
@@ -296,7 +320,7 @@ def _merge_backfill(daily: dict, guild_id, counts: dict, msg_points: int):
             if day in stored:
                 skipped += 1
                 continue
-            stored[day] = n * msg_points
+            stored[day] = {"v": 0, "t": n * msg_points}  # 回填只有訊息 → 純文字
             filled += 1
     return filled, skipped
 
@@ -323,6 +347,20 @@ def total_points(rec: dict) -> int:
 
 def total_messages(rec: dict) -> int:
     return rec.get("messages", 0) + rec.get("history_messages", 0)
+
+
+def points_breakdown(rec: dict, message_points: int):
+    """把總點數拆成 (語音點數, 文字點數)。
+
+    文字點數 = 總訊息數 × 每則點數（含回填的歷史訊息——歷史只回填得到訊息，
+    語音無法回溯）。語音點數 = 總點數扣掉文字點數。用相減而不是直接算
+    voice_min // 費率，是因為費率若中途調過，voice_min 換算會對不上實際累積的
+    點數；相減能保證「語音 + 文字 = 總點數」永遠成立。message_points 若調大到
+    讓文字點數超過總點數（罕見），就夾住文字、語音記 0，不會出現負數。
+    """
+    total = total_points(rec)
+    text_pts = min(total_messages(rec) * message_points, total)
+    return total - text_pts, text_pts
 
 
 def _leaderboard(data: dict, guild_id):
@@ -423,9 +461,10 @@ class Points(commands.Cog):
 
     # --- 每日明細的記憶體暫存 ---
 
-    def _note_daily(self, guild_id, member_id, day: str, points: int) -> None:
-        if points:
-            _daily_add(self._pending, guild_id, member_id, day, points)
+    def _note_daily(self, guild_id, member_id, day: str, *,
+                    voice: int = 0, text: int = 0) -> None:
+        if voice or text:
+            _daily_add(self._pending, guild_id, member_id, day, voice=voice, text=text)
 
     def _daily_view(self, guild_id) -> dict:
         """檔案內容 + 還沒落地的暫存，合起來的即時視圖。"""
@@ -512,7 +551,7 @@ class Points(commands.Cog):
                             gained = _award(
                                 data, guild.id, m.id, m.display_name, voice_min=1,
                                 minutes_per_point=cfg["voice_minutes_per_point"])
-                            self._note_daily(guild.id, m.id, today, gained)
+                            self._note_daily(guild.id, m.id, today, voice=gained)
                             changed = True
             if changed:
                 _save(data)
@@ -542,7 +581,7 @@ class Points(commands.Cog):
                             message.author.display_name,
                             points=cfg["message_points"], messages=1)
             _save(data)
-        self._note_daily(message.guild.id, message.author.id, _today(), gained)
+        self._note_daily(message.guild.id, message.author.id, _today(), text=gained)
 
     # --- slash 指令 ---
 
@@ -589,12 +628,14 @@ class Points(commands.Cog):
                 f"{who}還沒有任何{POINTS_NAME}。", ephemeral=True,
                 allowed_mentions=discord.AllowedMentions.none())
         rec = board[rank - 1][1]
+        voice_pts, text_pts = points_breakdown(rec, points_config(self.bot)["message_points"])
         embed = discord.Embed(
             title=f"{POINTS_EMOJI} {POINTS_NAME}",
             description=(
                 f"{target.mention}\n"
-                f"**{rec['points']}** 點 · 第 **{rank}** 名（共 {len(board)} 人）\n"
-                f"🎙️ 語音 {rec['voice_min']} 分鐘 ・ 💬 訊息 {rec['messages']} 則"
+                f"**{total_points(rec)}** 點 · 第 **{rank}** 名（共 {len(board)} 人）\n"
+                f"🎙️ 語音 {voice_pts} 點（{rec.get('voice_min', 0)} 分鐘）\n"
+                f"💬 文字 {text_pts} 點（{total_messages(rec)} 則）"
             ),
             color=discord.Color.gold(),
         )
@@ -622,8 +663,8 @@ class Points(commands.Cog):
 
         recent = _daily_recent(self._daily_view(interaction.guild_id),
                                interaction.guild_id, _today(), days)
-        rows = sorted(((uid, got) for uid, got in recent.items() if got >= threshold),
-                      key=lambda r: r[1], reverse=True)
+        rows = sorted(((uid, v, t) for uid, (v, t) in recent.items() if v + t >= threshold),
+                      key=lambda r: r[1] + r[2], reverse=True)
 
         if not rows:
             return await interaction.response.send_message(
@@ -632,8 +673,8 @@ class Points(commands.Cog):
                 ephemeral=True)
 
         lines = [
-            f"**{i}.** <@{uid}> — **{got}** 點"
-            for i, (uid, got) in enumerate(rows[:25], start=1)
+            f"**{i}.** <@{uid}> — **{v + t}** 點（🎙️{v} / 💬{t}）"
+            for i, (uid, v, t) in enumerate(rows[:25], start=1)
         ]
         if len(rows) > 25:
             lines.append(f"…還有 {len(rows) - 25} 人")
@@ -960,7 +1001,7 @@ class Points(commands.Cog):
 
         hist = {}
         for uid, per_day in daily.items():
-            got = sum(v for d, v in per_day.items() if d < cutoff)
+            got = sum(_day_total(val) for d, val in per_day.items() if d < cutoff)
             if got:
                 hist[uid] = got
 
