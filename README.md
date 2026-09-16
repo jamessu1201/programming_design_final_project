@@ -15,7 +15,7 @@ git 自動部署。
 | **Auto** | （自動） | 每日 LeetCode 題目、生日祝賀、LOL 提醒、LeetCode 周賽提醒 |
 | **Event** | （自動） | 關鍵字觸發迷因回應、髒話過濾 |
 | **Others** | `!poll`、`!draw`、`!banwords`、`!prefix`、`!count` | 投票、抽獎、禁字管理、自訂前綴 |
-| **Queue** | `/queue add`、`/queue list`、`/queue top`、`/queue take`、`/queue pop`、`/queue queues`、`/queue clear`、`/queue setup`、`/queue setnext`、`/queue autooff` | 多具名排隊系統（slash + autocomplete）：人人可加、隊頭人人可移除、中間/尾端只能拿自己的；可開冷卻期，到期自動 pop 並 tag 邀請人開投票 |
+| **Queue** | `/queue help`、`/queue add`、`/queue list`、`/queue top`、`/queue take`、`/queue pop`、`/queue queues`、`/queue clear`、`/queue setup`、`/queue setnext`、`/queue autooff` | 多具名排隊系統（slash + autocomplete）：人人可加、隊頭人人可移除、中間/尾端只能拿自己的；可開冷卻期，到期自動 pop 並 tag 邀請人開投票 |
 | **LLM** | `/ask`、`/forget`、`/botchat`、`/stopchat` | 接 OpenAI 相容端點：`/ask` 一問一答（可附圖看圖）、@機器人 聊天（短期上下文）、`/botchat` 讓兩隻機器人在指定頻道互聊（節流＋上限），`/stopchat` 喊停。支援 function calling 工具：時間/計算、天氣、DuckDuckGo 搜尋、查點數與 queue |
 | **Points** | `/points top`、`/points view`、`/points active`、`/points reset`、`/points recompute` | 活躍度點數：語音每 N 分鐘 +1、訊息每則 +1。`/points active` 列出指定期間內達到門檻的人（預設「最近 30 天 ≥ 200 點」）。名稱、費率、適用伺服器都在 `config.yaml` 設定 |
 | **FB watch** | `/fbwatch` | 訂閱關鍵字，命中轉貼文章時 DM 通知（可選 ntfy 手機推播） |
