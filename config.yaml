@@ -27,7 +27,7 @@ role_select:
 # LLM（OpenAI 相容端點）。API key 不放這裡——放 api_key/llm.txt 或環境變數 llm_api_key。
 llm:
   base_url: https://api.jamessu1201.com/v1
-  text_model: qwen3-30b
+  text_model: minimax-m2.7   # gateway 對外名；2026-09 起 gb10 改跑 MiniMax-M2.7（舊名 qwen3-30b 已下架，打了會 400）
   vision_model: qwen3.5-4b   # 多模態，看圖
   max_tokens: 4096           # 太小會把長回覆/教學截斷（「話沒講完」）；越大越不會斷但慢
 
