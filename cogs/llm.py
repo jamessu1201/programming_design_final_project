@@ -202,10 +202,10 @@ class LLM(commands.Cog):
         if not self.api_key:
             logger.warning("LLM: no API key (set %s env or %s); commands will report unconfigured.",
                            KEY_ENV, KEY_FILE)
-        # 讀 timeout 要夠長:qwen3-30b 約 ~30 tok/s,max_tokens=4096 的滿版回覆可能 ~2 分鐘,
+        # 讀 timeout 要夠長:自架模型約 15~30 tok/s,max_tokens=4096 的滿版回覆可能 ~4~5 分鐘,
         # 太短會 ReadTimeout(其 str() 為空 → 使用者看到「呼叫 AI 失敗」)。connect 短一點即可。
         # (Discord 的 defer 給 15 分鐘,所以這裡放寬不影響互動。)
-        self._client = httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0))
+        self._client = httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=10.0))
         # (channel_id, user_id) -> deque[{"role","content","ts"}]
         self._mem: dict[tuple[int, int], collections.deque] = {}
         # channel_id -> {"partner": int, "turns": int, "max": int}（進行中的機器人互聊）
@@ -239,28 +239,37 @@ class LLM(commands.Cog):
 
     # ── 呼叫 LLM ──
 
-    async def _chat(self, messages: list[dict], model: str) -> str:
+    async def _post_chat(self, payload: dict) -> dict:
+        """POST /chat/completions。非 2xx 時把端點回的錯誤原文記進 log（否則 400/403 只看得到狀態碼，
+        查不出是模型名下架、key 沒開該模型、還是請求格式錯）。"""
         resp = await self._client.post(
             f"{self.base_url}/chat/completions",
             headers={"Authorization": f"Bearer {self.api_key}"},
-            json={"model": model, "messages": messages, "max_tokens": self.max_tokens},
+            json=payload,
         )
-        resp.raise_for_status()
-        data = resp.json()
+        if resp.is_error:
+            body = resp.text[:500]
+            logger.error("LLM HTTP %s model=%s body=%s", resp.status_code, payload.get("model"), body)
+            try:
+                detail = resp.json().get("error", {}).get("message") or body
+            except ValueError:
+                detail = body
+            raise RuntimeError(f"HTTP {resp.status_code}: {detail}")
+        return resp.json()
+
+    async def _chat(self, messages: list[dict], model: str) -> str:
+        data = await self._post_chat(
+            {"model": model, "messages": messages, "max_tokens": self.max_tokens})
         content = (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
         return _clean_reply(content)
 
     async def _chat_with_tools(self, messages: list[dict], model: str, ctx: dict) -> str:
         """tool-calling 迴圈：模型要工具 → 執行 → 回灌結果 → 再問，直到給出答案或到上限。"""
         for _ in range(self.tool_max_rounds):
-            resp = await self._client.post(
-                f"{self.base_url}/chat/completions",
-                headers={"Authorization": f"Bearer {self.api_key}"},
-                json={"model": model, "messages": messages, "max_tokens": self.max_tokens,
-                      "tools": TOOLS_SCHEMA, "tool_choice": "auto"},
-            )
-            resp.raise_for_status()
-            msg = (resp.json().get("choices") or [{}])[0].get("message", {})
+            data = await self._post_chat(
+                {"model": model, "messages": messages, "max_tokens": self.max_tokens,
+                 "tools": TOOLS_SCHEMA, "tool_choice": "auto"})
+            msg = (data.get("choices") or [{}])[0].get("message", {})
             content = msg.get("content") or ""
             tool_calls = msg.get("tool_calls")
             if not tool_calls:
