@@ -158,6 +158,54 @@ def _parse_iso(ts: Optional[str]) -> Optional[datetime.datetime]:
         return None
 
 
+# ── 新開 queue 的確認按鈕 ──
+
+class _NewQueueConfirm(discord.ui.View):
+    """`/queue add` 打了一個不存在的名稱、而伺服器已經有別的 queue 時先問一下。
+
+    實際觀察到的誤用：把「要排的東西」（例如要邀請的人名）填進 name 欄，
+    結果每個人都新開一條只有自己的 queue，真正的隊伍反而是空的。
+    """
+
+    def __init__(self, cog: "Queue", user_id: int, name: str, content: str, existing: list[str]):
+        super().__init__(timeout=180)
+        self.cog = cog
+        self.user_id = user_id
+        self.name = name
+        self.content = content
+        for q in existing[:4]:
+            btn = discord.ui.Button(label=f"排進「{q}」"[:80], style=discord.ButtonStyle.primary)
+            btn.callback = self._make_callback(q)
+            self.add_item(btn)
+        btn = discord.ui.Button(label=f"新開一條叫「{name}」的 queue"[:80],
+                                style=discord.ButtonStyle.secondary)
+        btn.callback = self._make_callback(None)
+        self.add_item(btn)
+
+    def merged_content(self) -> str:
+        # 使用者打在 name 欄的字通常就是主體（人名／項目），內容是補充；合併後不丟資訊。
+        return f"{self.name}：{self.content}"[:MAX_CONTENT]
+
+    def _make_callback(self, target: Optional[str]):
+        async def callback(interaction: discord.Interaction):
+            if interaction.user.id != self.user_id:
+                return await interaction.response.send_message("這不是你的操作。", ephemeral=True)
+            self.stop()
+            if target is None:
+                name, content = self.name, self.content
+                note = f"好，新開 queue **{name}**。"
+            else:
+                name, content = target, self.merged_content()
+                note = f"好，排進 **{name}**。"
+            await interaction.response.edit_message(content=note, view=None)
+
+            async def send(text: str, ephemeral: bool = False):
+                await interaction.followup.send(
+                    text, ephemeral=ephemeral, allowed_mentions=discord.AllowedMentions.none())
+            await self.cog._finish_add(interaction, name, content, send)
+        return callback
+
+
 # ── Cog ──
 
 class Queue(commands.Cog):
@@ -272,8 +320,11 @@ class Queue(commands.Cog):
 
     # --- add ---
 
-    @group.command(name="add", description="把資訊排進 queue 隊尾")
-    @app_commands.describe(name="queue 名稱（不存在會自動建立）", content="要排進去的內容")
+    @group.command(name="add", description="把東西排進某一條 queue 的隊尾")
+    @app_commands.describe(
+        name="要排進哪一條 queue？打字會列出現有的，直接選（不是要排的東西！）",
+        content="要排進去的東西（例：人名＋介紹）",
+    )
     async def add(self, interaction: discord.Interaction, name: str, content: str):
         name = name.strip()
         content = content.strip()
@@ -288,6 +339,30 @@ class Queue(commands.Cog):
             return await interaction.response.send_message(
                 f"內容最長 {MAX_CONTENT} 字。", ephemeral=True)
 
+        existing = sorted(_load().get(str(interaction.guild_id), {}))
+        if existing and name not in existing:
+            # 名稱不存在但伺服器已有別的 queue：八成是把「要排的東西」打到 name 欄，先問。
+            view = _NewQueueConfirm(self, interaction.user.id, name, content, existing)
+            preview = content if len(content) <= 40 else content[:40] + "…"
+            lines = [
+                f"❓ 目前沒有叫 **{name}** 的 queue。",
+                "`name` 欄是**要排進哪一條隊伍**，`content` 欄才是**你要排的東西**。",
+                f"如果你是想把「{name}」排進現有的隊伍，按下面的按鈕，會以 "
+                f"`{name}：{preview}` 排進去；確定要新開一條隊伍就按最後一顆。",
+                "現有隊伍：" + "、".join(f"**{q}**" for q in existing),
+                "（不清楚的話看 `/queue help`）",
+            ]
+            return await interaction.response.send_message(
+                "\n".join(lines), view=view, ephemeral=True,
+                allowed_mentions=discord.AllowedMentions.none())
+
+        async def send(text: str, ephemeral: bool = False):
+            await interaction.response.send_message(
+                text, ephemeral=ephemeral, allowed_mentions=discord.AllowedMentions.none())
+        await self._finish_add(interaction, name, content, send)
+
+    async def _finish_add(self, interaction: discord.Interaction, name: str, content: str, send):
+        """真正入列 + 回覆。`/queue add` 與確認按鈕共用；send(text, ephemeral) 由呼叫端提供。"""
         async with self._lock:
             data = _load()
             status, item, pos = _enqueue(
@@ -295,18 +370,14 @@ class Queue(commands.Cog):
                 interaction.user.id, interaction.user.display_name, content, _now(),
             )
             if status == "queue_full":
-                return await interaction.response.send_message(
-                    f"**{name}** 已滿（上限 {MAX_ITEMS} 筆）。", ephemeral=True)
+                return await send(f"**{name}** 已滿（上限 {MAX_ITEMS} 筆）。", ephemeral=True)
             if status == "too_many_queues":
-                return await interaction.response.send_message(
+                return await send(
                     f"這個伺服器的 queue 數已達上限（{MAX_QUEUES} 個），"
                     f"請先用 `/queue clear` 刪掉不用的。", ephemeral=True)
             _save(data)
 
-        await interaction.response.send_message(
-            f"✅ 已排進 **{name}**，你在第 **{pos}** 位（id `{item['id']}`）：{content}",
-            allowed_mentions=discord.AllowedMentions.none(),
-        )
+        await send(f"✅ 已排進 **{name}**，你在第 **{pos}** 位（id `{item['id']}`）：{content}")
 
     @add.autocomplete("name")
     async def _add_name_ac(self, interaction: discord.Interaction, current: str):
@@ -380,13 +451,73 @@ class Queue(commands.Cog):
         g = data.get(str(interaction.guild_id), {})
         if not g:
             return await interaction.response.send_message(
-                "目前沒有任何 queue。用 `/queue add` 開一個吧。", ephemeral=True)
+                "目前沒有任何 queue。用 `/queue add` 開一個吧（用法見 `/queue help`）。", ephemeral=True)
         lines = [f"• **{n}**（{len(q['items'])} 人）" for n, q in sorted(g.items())]
         embed = discord.Embed(
             title="🗂️ 目前的 queue",
             description="\n".join(lines),
             color=discord.Color.blurple(),
         )
+        await interaction.response.send_message(embed=embed)
+
+    # --- help ---
+
+    @group.command(name="help", description="排隊系統怎麼用（name 跟 content 別填反）")
+    async def help_(self, interaction: discord.Interaction):
+        g = _load().get(str(interaction.guild_id), {})
+        # 用這個伺服器真的存在的 queue 當範例（優先有自動提醒的那條），沒有就用通用例子。
+        if g:
+            example = max(sorted(g), key=lambda n: (bool(g[n].get("auto")), len(g[n]["items"])))
+        else:
+            example = "投票"
+        embed = discord.Embed(
+            title="📋 Queue 排隊系統怎麼用",
+            description=(
+                "一條 **queue** 就是一條**具名的隊伍**，大家把東西排進**同一條**隊伍，"
+                "輪到隊頭再處理。`/queue add` 有兩個欄位：\n"
+                "• **name**＝要排進哪一條隊伍（打字會自動列出現有的，直接選）\n"
+                "• **content**＝你要排的東西"
+            ),
+            color=discord.Color.blurple(),
+        )
+        embed.add_field(
+            name="❌ 最常見的錯誤",
+            value=(
+                "`/queue add name:小明 content:中正大一…`\n"
+                f"→ 這樣會**新開一條叫「小明」的隊伍**，裡面只有他一個人，"
+                f"真正的 **{example}** 反而沒排到。"
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="✅ 正確寫法",
+            value=f"`/queue add name:{example} content:小明：中正大一…`\n"
+                  f"→ 小明排進 **{example}** 的隊尾。",
+            inline=False,
+        )
+        embed.add_field(
+            name="常用指令",
+            value=(
+                "`/queue queues` 看有哪些隊伍\n"
+                f"`/queue list name:{example}` 看整條隊伍\n"
+                f"`/queue top name:{example}` 看隊頭是誰\n"
+                "`/queue take` 拿回自己排錯／不排了的那筆\n"
+                f"`/queue pop name:{example}` 移除隊頭（處理完了）"
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="規則",
+            value=(
+                "任何人都能 add；隊頭任何人都能 pop；中間的只能 take 自己的。\n"
+                "`clear`／`setup`／`setnext`／`autooff` 限管理員。"
+                "有開自動提醒的隊伍到期會自動 pop 並 tag 排隊的人。"
+            ),
+            inline=False,
+        )
+        if g:
+            lines = [f"• **{n}**（{len(q['items'])} 人）" for n, q in sorted(g.items())]
+            embed.add_field(name="目前這裡的隊伍", value="\n".join(lines)[:1024], inline=False)
         await interaction.response.send_message(embed=embed)
 
     # --- take（拿走自己的） ---
