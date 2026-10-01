@@ -12,6 +12,7 @@ from .. import security
 router = APIRouter(prefix="/guilds/{guild_id}/queues", tags=["queues"])
 
 QUEUES_PATH = Path("json/queues.json")
+WEEKDAY_NAMES = ["週一", "週二", "週三", "週四", "週五", "週六", "週日"]  # 對應 cogs/queue.py
 
 
 def _load() -> dict:
@@ -41,9 +42,12 @@ async def list_queues(
             cid = auto.get("channel_id")
             chan = bot.get_channel(int(cid)) if cid else None
             next_ready = auto.get("next_ready")
+            snap = auto.get("snap_weekday")
             auto_view = {
                 "enabled": auto.get("enabled", False),
                 "cooldown_days": auto.get("cooldown_days", 30),
+                "snap_weekday": WEEKDAY_NAMES[snap]
+                if isinstance(snap, int) and 0 <= snap < 7 else None,
                 "channel_name": f"#{chan.name}" if chan else (f"#{cid}" if cid else "—"),
                 "next_ready": next_ready.replace("T", " ")[:16] if next_ready else "立即",
             }

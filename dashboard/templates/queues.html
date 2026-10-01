@@ -15,7 +15,8 @@
       <h2>📋 {{ q.name }}（{{ q['items'] | length }} 人）</h2>
       {% if q['auto'] %}
       <p class="muted">⏳ 自動投票提醒：{{ "開" if q['auto'].enabled else "關" }}
-        · 冷卻 {{ q['auto'].cooldown_days }} 天
+        · 冷卻 {{ q['auto'].cooldown_days }} 天{% if q['auto'].snap_weekday %}
+        · 遇{{ q['auto'].snap_weekday }}提前{% endif %}
         · 下次可 pop：{{ q['auto'].next_ready }}
         · 頻道 {{ q['auto'].channel_name }}</p>
       {% endif %}
