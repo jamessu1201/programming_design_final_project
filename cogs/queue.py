@@ -31,6 +31,7 @@ MAX_QUEUES = 50   # 單一 guild 的 queue 數上限。少了這個，任何人�
 TZ = datetime.timezone(datetime.timedelta(hours=8))
 DEFAULT_COOLDOWN_DAYS = 30  # 預設冷卻一個月
 FIRE_HOUR = 12  # 用 /queue setnext 只給日期時，預設當天中午（UTC+8）
+WEEKDAY_NAMES = ["週一", "週二", "週三", "週四", "週五", "週六", "週日"]  # index = date.weekday()
 
 
 # ── 持久化（純函式，方便測試） ──
@@ -122,9 +123,11 @@ def _auto_summary(q: dict) -> str:
     nr = _parse_iso(auto.get("next_ready"))
     when = nr.strftime("%Y-%m-%d %H:%M") if nr else "立即"
     state = "開" if auto.get("enabled") else "關"
+    snap = _snap_label(auto.get("snap_weekday"))
+    snap = f" · {snap}" if snap else ""
     cid = auto.get("channel_id")
     chan = f" · 頻道 <#{cid}>" if cid else ""
-    return f"自動提醒：{state} · 冷卻 {cooldown} 天 · 下次可 pop：{when}{chan}"
+    return f"自動提醒：{state} · 冷卻 {cooldown} 天{snap} · 下次可 pop：{when}{chan}"
 
 
 def _pop(data: dict, guild_id, name):
@@ -156,6 +159,37 @@ def _parse_iso(ts: Optional[str]) -> Optional[datetime.datetime]:
         return dt
     except ValueError:
         return None
+
+
+def _next_snap(now: datetime.datetime, snap_weekday: int) -> datetime.datetime:
+    """今天之後（不含今天）第一個 snap_weekday 的 FIRE_HOUR:00。"""
+    days_ahead = (snap_weekday - now.weekday() - 1) % 7 + 1  # 1..7
+    return (now + datetime.timedelta(days=days_ahead)).replace(
+        hour=FIRE_HOUR, minute=0, second=0, microsecond=0)
+
+
+def _next_ready(now: datetime.datetime, cooldown_days: int,
+                snap_weekday: Optional[int] = None) -> datetime.datetime:
+    """pop 之後下次可 pop 的時間。
+
+    預設就是 now + 冷卻天數。有設 snap_weekday（0=週一…6=週日）時，冷卻期內
+    如果會先遇到那個星期幾，就提前到那天中午；所以冷卻 7 天 + 週一 = 每週一提醒，
+    不管上一筆是星期幾 pop 的。
+    """
+    nr = now + datetime.timedelta(days=cooldown_days)
+    if snap_weekday is None:
+        return nr
+    # 比日期不比時間：冷卻剛好落在那個星期幾當天時也統一用中午，
+    # 不然週一早上手動 pop 會讓之後每週都變成早上提醒。
+    snap = _next_snap(now, snap_weekday)
+    return snap if snap.date() <= nr.date() else nr
+
+
+def _snap_label(snap_weekday) -> str:
+    """snap_weekday 的顯示字串；沒設或壞值回空字串。"""
+    if isinstance(snap_weekday, int) and 0 <= snap_weekday < 7:
+        return f"遇{WEEKDAY_NAMES[snap_weekday]}提前"
+    return ""
 
 
 # ── 新開 queue 的確認按鈕 ──
@@ -261,7 +295,8 @@ class Queue(commands.Cog):
                     continue
 
                 cooldown = int(auto.get("cooldown_days", DEFAULT_COOLDOWN_DAYS))
-                auto["next_ready"] = (now + datetime.timedelta(days=cooldown)).isoformat()
+                auto["next_ready"] = _next_ready(
+                    now, cooldown, auto.get("snap_weekday")).isoformat()
                 dirty = True
 
                 inviter = head["user_id"]
@@ -511,7 +546,8 @@ class Queue(commands.Cog):
             value=(
                 "任何人都能 add；隊頭任何人都能 pop；中間的只能 take 自己的。\n"
                 "`clear`／`setup`／`setnext`／`autooff` 限管理員。"
-                "有開自動提醒的隊伍到期會自動 pop 並 tag 排隊的人。"
+                "有開自動提醒的隊伍到期會自動 pop 並 tag 排隊的人；"
+                "`setup` 可選 `weekday`，冷卻期內遇到那個星期幾就提前到當天中午。"
             ),
             inline=False,
         )
@@ -570,9 +606,12 @@ class Queue(commands.Cog):
                 auto = q.get("auto") if q else None
                 if auto and auto.get("enabled"):
                     cooldown = int(auto.get("cooldown_days", DEFAULT_COOLDOWN_DAYS))
-                    nr = _now_tz() + datetime.timedelta(days=cooldown)
+                    nr = _next_ready(_now_tz(), cooldown, auto.get("snap_weekday"))
                     auto["next_ready"] = nr.isoformat()
-                    cooldown_note = f"\n⏳ 冷卻 {cooldown} 天，下次可 pop：{nr.strftime('%Y-%m-%d %H:%M')}"
+                    snap = _snap_label(auto.get("snap_weekday"))
+                    snap = f"（{snap}）" if snap else ""
+                    cooldown_note = (f"\n⏳ 冷卻 {cooldown} 天{snap}，"
+                                     f"下次可 pop：{nr.strftime('%Y-%m-%d %H:%M')}")
                 _save(data)
 
         if removed is None:
@@ -634,10 +673,14 @@ class Queue(commands.Cog):
         name="queue 名稱（不存在會自動建立）",
         cooldown_days=f"冷卻幾天（預設 {DEFAULT_COOLDOWN_DAYS}）",
         channel="提醒要發到哪個頻道（預設目前頻道）",
+        weekday="冷卻期內遇到星期幾就提前到那天中午提醒（不選＝純照冷卻天數）",
     )
+    @app_commands.choices(weekday=[
+        app_commands.Choice(name=n, value=i) for i, n in enumerate(WEEKDAY_NAMES)])
     async def setup(self, interaction: discord.Interaction, name: str,
                     cooldown_days: Optional[int] = None,
-                    channel: Optional[discord.TextChannel] = None):
+                    channel: Optional[discord.TextChannel] = None,
+                    weekday: Optional[app_commands.Choice[int]] = None):
         name = name.strip()
         if not name:
             return await interaction.response.send_message("queue 名稱不可空白。", ephemeral=True)
@@ -664,11 +707,25 @@ class Queue(commands.Cog):
             auto["cooldown_days"] = cooldown
             auto["channel_id"] = channel_id
             auto.setdefault("next_ready", None)  # None = 第一個立即可 pop
+            if weekday is None:
+                auto.pop("snap_weekday", None)
+            else:
+                auto["snap_weekday"] = weekday.value
+                # 正在等的這一輪也套用新規則：還沒到期就拉到下一個該星期幾。
+                now = _now_tz()
+                pending = _parse_iso(auto["next_ready"])
+                if pending is not None and pending > now:
+                    auto["next_ready"] = min(pending, _next_snap(now, weekday.value)).isoformat()
+            nr = _parse_iso(auto["next_ready"])
             _save(data)
 
+        snap = _snap_label(auto.get("snap_weekday"))
+        snap = f"（{snap}）" if snap else ""
+        when = nr.strftime("%Y-%m-%d %H:%M") if nr else "立即"
         await interaction.response.send_message(
-            f"✅ **{name}** 已開啟自動投票提醒：冷卻 **{cooldown}** 天，"
+            f"✅ **{name}** 已開啟自動投票提醒：冷卻 **{cooldown}** 天{snap}，"
             f"提醒發到 <#{channel_id}>。隊頭到期會自動 pop 並 tag 邀請人。\n"
+            f"下次可 pop：**{when}**"
             f"（要對齊已發生的投票，用 `/queue setnext` 設下次可 pop 日期）",
             allowed_mentions=discord.AllowedMentions.none(),
         )
