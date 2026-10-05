@@ -67,6 +67,17 @@ points:
                              #     所以訪客陪著時，另一位照常累積點數。
 # 註：改了 display_name 之後，slash 指令的描述要跑一次 !sync 才會更新。
 
+# 訊息封存（可選，預設關）。每則訊息的 metadata（誰、何時、哪個頻道）存進 SQLite，
+# 之後用 /archive stats、/archive top 或 dashboard 查「某人在某段時間講了幾句」：
+#   logs/archive/messages.db   metadata + 頻道/使用者名稱 + 回填進度（統計全靠它）
+#   logs/archive/content.db    訊息內容與附件 URL，store_content: true 才寫，刪掉不影響統計
+# 歷史訊息用 !archive_backfill（限 owner）從最舊的開始爬，可中斷續傳。
+# 這是在存群友的發言紀錄，請先跟群友說一聲再開。
+archive:
+  enabled: false
+  guild_id: null             # null = 所有伺服器；填 ID = 只記該伺服器
+  store_content: false       # true = 內容也存（另一個檔）
+
 # 語音在線紀錄（可選，預設關）。開了之後會記每個人幾點在語音、進出哪個頻道：
 #   logs/voice/<guild_id>.hourly.json   每人每小時在線/活躍分鐘
 #   logs/voice/<guild_id>.events.jsonl  join/leave/move/mute/deaf 事件流

@@ -17,6 +17,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from . import security
 from .limits import limiter
 from .routes import (
+    archive,
     auth,
     auto_tasks,
     autodeploy,
@@ -71,6 +72,7 @@ def create_app(bot) -> FastAPI:
     app.include_router(autodeploy.router)
     app.include_router(auto_tasks.router)
     app.include_router(maintenance.router)
+    app.include_router(archive.router)
 
     @app.exception_handler(401)
     async def _unauth(request: Request, _exc):

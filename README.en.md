@@ -19,6 +19,7 @@ auto-deploy.
 | **Queue** | `/queue help`, `/queue add`, `/queue list`, `/queue top`, `/queue take`, `/queue pop`, `/queue queues`, `/queue clear`, `/queue setup`, `/queue setnext`, `/queue autooff` | Multiple named queues (slash commands + autocomplete): anyone can join, anyone can remove the head, but only your own entry elsewhere in the line. Optional cooldown auto-pops the head and tags the inviter to start a vote (`setup` takes an optional `weekday`: if that weekday falls inside the cooldown, the reminder moves up to noon that day — e.g. 7-day cooldown + Monday = every Monday) |
 | **LLM** | `/ask`, `/forget`, `/botchat`, `/stopchat` | Talks to any OpenAI-compatible endpoint. `/ask` is one question / one answer (images supported for vision models); @-mention the bot for chat with short-term context; `/botchat` lets two bots talk to each other in a designated channel (throttled, with a turn cap) and `/stopchat` ends it. Supports function calling: time/arithmetic, weather, DuckDuckGo search, and looking up points and queues |
 | **Points** | `/points top`, `/points view`, `/points active`, `/points reset`, `/points recompute` | Activity points: +1 per N minutes in voice, +1 per message. `/points active` lists everyone who hit a threshold over a rolling window (default "≥ 200 in the last 30 days"). Name, rates and which servers it applies to are all set in `config.yaml` |
+| **Archive** | `/archive stats`, `/archive top`, `/archive status`, `!archive_backfill` | Message archive: per-message metadata in SQLite (content optionally in a second file). Ask how much someone posted in a date range, in which channels and at what hours; `!archive_backfill` crawls the server's full history (resumable). Same view in the dashboard. Off by default |
 | **Voice log** | (no commands; `config.yaml` toggle) | Voice presence log: per-user minutes online/active for every hour plus a join/leave/move event stream, written to `logs/voice/`. Off by default |
 | **FB watch** | `/fbwatch` | Subscribe to keywords and get a DM when a forwarded post matches (optional ntfy push to your phone) |
 | **Conversation** | `!sendtext`, `!sendreply`, `!sendprivate` | Remote messaging (owner only) |
@@ -123,6 +124,26 @@ points:
 
 After changing `display_name`, run `!reload points`; the slash command
 descriptions additionally need a `!sync`.
+
+The optional message archive is configured here too:
+
+```yaml
+archive:
+  enabled: false         # nothing is recorded until this is true
+  guild_id: null         # null = every server
+  store_content: false   # true = also keep message text (in a separate file)
+```
+
+When enabled, every message's metadata (author, time, channel, attachment count,
+length) goes into `logs/archive/messages.db`, and the text (if enabled) into
+`logs/archive/content.db`. They are separate files on purpose so you can drop
+the content at any time and keep the statistics. `!archive_backfill` (bot owner
+only) crawls the server's entire history from the oldest message; progress is
+stored in the database, so an interrupted run resumes where each channel left
+off. Query with `/archive stats user: from: to:` (count, per channel, hour-of-day
+and weekday distribution), `/archive top` (leaderboard), or the dashboard's
+"訊息統計" page; the files are plain SQLite, so you can also run your own SQL.
+This records who posted when, so tell your members before turning it on.
 
 The optional voice presence log lives in the same file:
 
@@ -242,6 +263,7 @@ cogs/
   role_select.py        # Self-service role buttons
   scheduled.py          # Cron-style scheduled messages
   voicelog.py           # Voice presence log (hourly buckets + event stream, off by default)
+  archive.py            # Message archive (SQLite metadata + optional content, backfill + stats)
 cogs_local/             # Optional private cogs (gitignored)
 dashboard/              # FastAPI admin UI
 json/

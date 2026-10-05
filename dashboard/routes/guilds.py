@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from .. import security
+from cogs import archive as archive_cog
 from cogs import points as points_cog
 
 router = APIRouter()
@@ -71,6 +72,7 @@ async def guild_overview(
             },
             "all_guilds": _list_visible_guilds(session, bot),
             "points_enabled": points_cog.points_enabled(bot, guild.id),
+            "archive_enabled": archive_cog.archive_enabled(bot, guild.id),
             "points_name": points_cog.POINTS_NAME,
             "points_emoji": points_cog.POINTS_EMOJI,
         },

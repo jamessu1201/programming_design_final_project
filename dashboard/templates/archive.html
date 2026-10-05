@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}訊息統計 · {{ guild.name }}{% endblock %}
+{% block content %}
+<section>
+  <div class="guild-header">
+    {% if guild.icon %}<img src="{{ guild.icon }}" alt="">{% endif %}
+    <h1>💬 訊息統計 — {{ guild.name }}</h1>
+  </div>
+  <p><a href="/guilds/{{ guild.id }}">← 回 {{ guild.name }}</a></p>
+
+  {% if not enabled %}
+  <p class="muted">此伺服器沒有啟用訊息封存（config.yaml 的 <code>archive.enabled</code>）。</p>
+  {% else %}
+
+  {% if overview and overview.n %}
+  <p class="muted">共 {{ "{:,}".format(overview.n) }} 則、{{ overview.users }} 人、{{ overview.channels }} 個頻道
+    · messages.db {{ "%.1f" | format(overview.meta_bytes / 1048576) }} MB
+    {% if overview.content_rows is not none %}· content.db {{ "%.1f" | format(overview.content_bytes / 1048576) }} MB{% endif %}
+    · 回填要在 Discord 用 <code>!archive_backfill</code></p>
+  {% else %}
+  <p class="muted">還沒有任何資料。在 Discord 跑 <code>!archive_backfill</code> 爬歷史，之後的訊息會即時寫入。</p>
+  {% endif %}
+
+  <form method="get" class="inline-form">
+    <select name="user_id">
+      <option value="">— 全部（排行）—</option>
+      {% for u in users %}
+      <option value="{{ u.user_id }}" {% if u.user_id|string == selected_user %}selected{% endif %}>{{ u.name }}</option>
+      {% endfor %}
+    </select>
+    <input type="text" name="from_date" placeholder="起 YYYY-MM-DD" value="{{ from_date }}" size="12">
+    <input type="text" name="to_date" placeholder="迄 YYYY-MM-DD" value="{{ to_date }}" size="12">
+    <button type="submit" class="btn btn-primary">查</button>
+  </form>
+  {% if error %}<p class="flash flash-error">⚠️ {{ error }}</p>{% endif %}
+  {% if label %}<p class="muted">區間：{{ label }}（UTC+8，省略 = 最近 30 天）</p>{% endif %}
+
+  {% if stats %}
+  <div class="card">
+    <h2>{{ selected_name }}：共 {{ "{:,}".format(stats.total) }} 則</h2>
+    {% if stats.total %}
+    <p class="muted">{{ stats.active_days }} 天有講話，平均每天 {{ "%.1f" | format(stats.total / stats.active_days) }} 則</p>
+    <h3>頻道</h3>
+    <table class="data">
+      <thead><tr><th>頻道</th><th>則數</th></tr></thead>
+      <tbody>
+        {% for c in stats.per_channel %}
+        <tr><td>#{{ c.name }}</td><td>{{ "{:,}".format(c.n) }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <h3>幾點講</h3>
+    <table class="data bars">
+      <tbody>
+        {% for b in hour_bars %}
+        <tr><td class="k">{{ "%02d" | format(loop.index0) }}</td>
+            <td class="bar"><div style="width: {{ b.pct }}%"></div></td><td>{{ b.n }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <h3>星期</h3>
+    <table class="data bars">
+      <tbody>
+        {% for b in weekday_bars %}
+        <tr><td class="k">週{{ weekday_names[loop.index0] }}</td>
+            <td class="bar"><div style="width: {{ b.pct }}%"></div></td><td>{{ b.n }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted">這段期間沒有紀錄。</p>
+    {% endif %}
+  </div>
+  {% elif top %}
+  <table class="data">
+    <thead><tr><th>名次</th><th>名稱</th><th>則數</th></tr></thead>
+    <tbody>
+      {% for r in top %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td><a href="?user_id={{ r.user_id }}&from_date={{ from_date }}&to_date={{ to_date }}">{{ r.name }}</a></td>
+        <td>{{ "{:,}".format(r.n) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% elif label and not error %}
+  <p class="muted">這段期間沒有紀錄。</p>
+  {% endif %}
+
+  {% endif %}
+</section>
+<style>
+  table.bars td.k { width: 4em; color: var(--muted); font-family: ui-monospace, monospace; }
+  table.bars td.bar { width: 60%; }
+  table.bars td.bar div { height: 12px; background: var(--accent); border-radius: 2px; min-width: 1px; }
+  select { padding: 6px 8px; border-radius: 4px; border: 1px solid var(--border); background: var(--panel-2); color: inherit; }
+</style>
+{% endblock %}
