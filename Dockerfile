@@ -5,7 +5,11 @@
 # stateless and rebuilds don't touch data. The bot reads everything by relative
 # path (config.yaml, json/, api_key/, private/, logs/, cogs_local/) -> those
 # resolve under /app once the volumes are overlaid.
-FROM python:3.13-slim
+# Pinned by digest on purpose: BuildKit re-resolves a bare tag against the
+# registry on every build, so each upstream refresh of python:3.13-slim
+# invalidated the apt layer below and turned a 10s rebuild into a 20min one.
+# To bump: `docker pull python:3.13-slim` and copy the new RepoDigest here.
+FROM python:3.13-slim@sha256:3dd7cc108ec1493442514f5c2a871af6af0ec31d768ff6e378a93340c3b3db5f
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
