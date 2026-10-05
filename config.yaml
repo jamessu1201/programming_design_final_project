@@ -64,3 +64,8 @@ points:
   history_days: null           # 永久保留每日明細（要跑完整回填就得是 null）
   exclude_guests: true   # Discord 官方訪客旗標，自動辨識
   excluded_roles: []     # 若你另外有自訂的訪客身分組，把 ID 填這裡
+
+# 語音在線紀錄：每人每小時在線/活躍分鐘 + 進出事件，寫到 logs/voice/
+voicelog:
+  enabled: true
+  guild_id: 960893399014211614   # 只記主群，跟 points 一樣
