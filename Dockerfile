@@ -15,9 +15,18 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     TZ=Asia/Taipei
 
+# Optional apt mirror for the main archive (security stays on deb.debian.org).
+# Set it when deb.debian.org's CDN is slow from your network, e.g. in the
+# compose project's .env: APT_MIRROR=debian.csie.ntu.edu.tw
+ARG APT_MIRROR=
+
 # ffmpeg: music playback. git: in-container git ops (!deploy / autodeploy).
 # tzdata: correct local time for the scheduled tasks.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN if [ -n "$APT_MIRROR" ]; then \
+        sed -i "s|^URIs: http://deb.debian.org/debian$|URIs: http://$APT_MIRROR/debian|" \
+            /etc/apt/sources.list.d/debian.sources; \
+    fi \
+ && apt-get update && apt-get install -y --no-install-recommends \
         ffmpeg git ca-certificates tzdata \
  && rm -rf /var/lib/apt/lists/*
 
