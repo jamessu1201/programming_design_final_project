@@ -69,3 +69,9 @@ points:
 voicelog:
   enabled: true
   guild_id: 960893399014211614   # 只記主群，跟 points 一樣
+
+# 訊息封存：metadata 進 logs/archive/messages.db，內容另存 content.db
+archive:
+  enabled: true
+  guild_id: 960893399014211614
+  store_content: true
