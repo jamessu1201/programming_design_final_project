@@ -67,6 +67,14 @@ points:
                              #     所以訪客陪著時，另一位照常累積點數。
 # 註：改了 display_name 之後，slash 指令的描述要跑一次 !sync 才會更新。
 
+# 語音在線紀錄（可選，預設關）。開了之後會記每個人幾點在語音、進出哪個頻道：
+#   logs/voice/<guild_id>.hourly.json   每人每小時在線/活躍分鐘
+#   logs/voice/<guild_id>.events.jsonl  join/leave/move/mute/deaf 事件流
+# 這是在記群友的在線時間，請先跟群友說一聲再開。
+voicelog:
+  enabled: false
+  guild_id: null             # null = 所有伺服器；填 ID = 只記該伺服器
+
 # ntfy 手機推播（可選）。fbwatch 關鍵字命中時，除了 Discord DM 再推一份到手機。
 # ntfy topic 等同密碼——猜到就能訂閱你的推播，請用夠長夠亂的字串，且別提交上去。
 # token 若有需要，放 api_key/ntfy.txt 或環境變數 ntfy_token，不寫這裡。

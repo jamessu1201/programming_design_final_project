@@ -19,6 +19,7 @@ auto-deploy.
 | **Queue** | `/queue help`, `/queue add`, `/queue list`, `/queue top`, `/queue take`, `/queue pop`, `/queue queues`, `/queue clear`, `/queue setup`, `/queue setnext`, `/queue autooff` | Multiple named queues (slash commands + autocomplete): anyone can join, anyone can remove the head, but only your own entry elsewhere in the line. Optional cooldown auto-pops the head and tags the inviter to start a vote (`setup` takes an optional `weekday`: if that weekday falls inside the cooldown, the reminder moves up to noon that day — e.g. 7-day cooldown + Monday = every Monday) |
 | **LLM** | `/ask`, `/forget`, `/botchat`, `/stopchat` | Talks to any OpenAI-compatible endpoint. `/ask` is one question / one answer (images supported for vision models); @-mention the bot for chat with short-term context; `/botchat` lets two bots talk to each other in a designated channel (throttled, with a turn cap) and `/stopchat` ends it. Supports function calling: time/arithmetic, weather, DuckDuckGo search, and looking up points and queues |
 | **Points** | `/points top`, `/points view`, `/points active`, `/points reset`, `/points recompute` | Activity points: +1 per N minutes in voice, +1 per message. `/points active` lists everyone who hit a threshold over a rolling window (default "≥ 200 in the last 30 days"). Name, rates and which servers it applies to are all set in `config.yaml` |
+| **Voice log** | (no commands; `config.yaml` toggle) | Voice presence log: per-user minutes online/active for every hour plus a join/leave/move event stream, written to `logs/voice/`. Off by default |
 | **FB watch** | `/fbwatch` | Subscribe to keywords and get a DM when a forwarded post matches (optional ntfy push to your phone) |
 | **Conversation** | `!sendtext`, `!sendreply`, `!sendprivate` | Remote messaging (owner only) |
 | **Admin** | `!reload`, `!ra`, `!deploy`, `!autodeploy`, `!bye` | Hot-reload, git auto-deploy, shutdown |
@@ -123,6 +124,21 @@ points:
 After changing `display_name`, run `!reload points`; the slash command
 descriptions additionally need a `!sync`.
 
+The optional voice presence log lives in the same file:
+
+```yaml
+voicelog:
+  enabled: false   # nothing is recorded until this is true
+  guild_id: null   # null = every server
+```
+
+When enabled the bot scans voice channels once a minute and writes two files
+under `logs/voice/`: `<guild_id>.hourly.json` holds per-user minutes online
+(`m`) and active (`a`: not the AFK channel, not self-muted/deafened, at least
+two humans present) for every hour, and `<guild_id>.events.jsonl` is a stream
+of join/leave/move/mute/deaf events with the channel and head count. This logs
+when your members are online, so tell them before turning it on.
+
 `/points active` reads per-user daily buckets, which only start accumulating
 once this feature is deployed. To fill in the past, run `!points_backfill`
 (bot owner only):
@@ -225,6 +241,7 @@ cogs/
   queue.py              # Multiple named queues (slash commands + autocomplete)
   role_select.py        # Self-service role buttons
   scheduled.py          # Cron-style scheduled messages
+  voicelog.py           # Voice presence log (hourly buckets + event stream, off by default)
 cogs_local/             # Optional private cogs (gitignored)
 dashboard/              # FastAPI admin UI
 json/

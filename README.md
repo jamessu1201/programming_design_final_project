@@ -18,6 +18,7 @@ git 自動部署。
 | **Queue** | `/queue help`、`/queue add`、`/queue list`、`/queue top`、`/queue take`、`/queue pop`、`/queue queues`、`/queue clear`、`/queue setup`、`/queue setnext`、`/queue autooff` | 多具名排隊系統（slash + autocomplete）：人人可加、隊頭人人可移除、中間/尾端只能拿自己的；可開冷卻期，到期自動 pop 並 tag 邀請人開投票（`setup` 可選 `weekday`：冷卻期內遇到那個星期幾就提前到當天中午，例如冷卻 7 天＋週一＝每週一提醒） |
 | **LLM** | `/ask`、`/forget`、`/botchat`、`/stopchat` | 接 OpenAI 相容端點：`/ask` 一問一答（可附圖看圖）、@機器人 聊天（短期上下文）、`/botchat` 讓兩隻機器人在指定頻道互聊（節流＋上限），`/stopchat` 喊停。支援 function calling 工具：時間/計算、天氣、DuckDuckGo 搜尋、查點數與 queue |
 | **Points** | `/points top`、`/points view`、`/points active`、`/points reset`、`/points recompute` | 活躍度點數：語音每 N 分鐘 +1、訊息每則 +1。`/points active` 列出指定期間內達到門檻的人（預設「最近 30 天 ≥ 200 點」）。名稱、費率、適用伺服器都在 `config.yaml` 設定 |
+| **Voice log** | （無指令，`config.yaml` 開關） | 語音在線紀錄：每人每小時在線／活躍分鐘 + 進出頻道事件流，寫到 `logs/voice/`。預設關 |
 | **FB watch** | `/fbwatch` | 訂閱關鍵字，命中轉貼文章時 DM 通知（可選 ntfy 手機推播） |
 | **Conversation** | `!sendtext`、`!sendreply`、`!sendprivate` | 遠端代發訊息（限 owner） |
 | **Admin** | `!reload`、`!ra`、`!deploy`、`!autodeploy`、`!bye` | 熱重載、git 自動部署、關機 |
@@ -116,6 +117,19 @@ points:
 
 改完 `display_name` 之後跑 `!reload points`；slash 指令的描述還要再跑一次 `!sync` 才會更新。
 
+語音在線紀錄（可選）也在這裡開：
+
+```yaml
+voicelog:
+  enabled: false   # 開了才記
+  guild_id: null   # null = 所有伺服器
+```
+
+開啟後每分鐘掃一次語音頻道，寫兩種檔到 `logs/voice/`：`<guild_id>.hourly.json`
+是每人每小時的在線分鐘（`m`）與活躍分鐘（`a`：非 AFK 頻道、沒自己靜音／拒聽、
+頻道至少兩個真人），`<guild_id>.events.jsonl` 是 join／leave／move／mute／deaf 的
+事件流（含頻道與當下人數）。這是在記群友的在線時間，開之前先跟群友說一聲。
+
 `/points active` 靠的是每人的每日明細，那是從這個功能上線後才開始累積的。
 想把過去的資料補回來，用 `!points_backfill`（限 bot owner）掃歷史訊息回填：
 
@@ -209,6 +223,7 @@ cogs/
   queue.py              # 多具名排隊系統（slash 指令 + autocomplete）
   role_select.py        # 自助選身分組按鈕
   scheduled.py          # cron 式排程訊息
+  voicelog.py           # 語音在線紀錄（每小時桶 + 事件流，預設關）
 cogs_local/             # 可選的私有 cog（已 gitignore）
 dashboard/              # FastAPI 管理後台
 json/
