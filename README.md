@@ -18,6 +18,7 @@ git 自動部署。
 | **Queue** | `/queue help`、`/queue add`、`/queue list`、`/queue top`、`/queue take`、`/queue pop`、`/queue queues`、`/queue clear`、`/queue setup`、`/queue setnext`、`/queue autooff` | 多具名排隊系統（slash + autocomplete）：人人可加、隊頭人人可移除、中間/尾端只能拿自己的；可開冷卻期，到期自動 pop 並 tag 邀請人開投票（`setup` 可選 `weekday`：冷卻期內遇到那個星期幾就提前到當天中午，例如冷卻 7 天＋週一＝每週一提醒） |
 | **LLM** | `/ask`、`/forget`、`/botchat`、`/stopchat` | 接 OpenAI 相容端點：`/ask` 一問一答（可附圖看圖）、@機器人 聊天（短期上下文）、`/botchat` 讓兩隻機器人在指定頻道互聊（節流＋上限），`/stopchat` 喊停。支援 function calling 工具：時間/計算、天氣、DuckDuckGo 搜尋、查點數與 queue |
 | **Points** | `/points top`、`/points view`、`/points active`、`/points reset`、`/points recompute` | 活躍度點數：語音每 N 分鐘 +1、訊息每則 +1。`/points active` 列出指定期間內達到門檻的人（預設「最近 30 天 ≥ 200 點」）。名稱、費率、適用伺服器都在 `config.yaml` 設定 |
+| **Archive** | `/archive stats`、`/archive top`、`/archive status`、`!archive_backfill` | 訊息封存：每則訊息的 metadata 進 SQLite（內容可選另存一檔），查某人在某段時間講幾句、在哪個頻道、幾點講；`!archive_backfill` 把整個伺服器的歷史爬進來（可中斷續傳）。dashboard 也有同樣的頁面。預設關 |
 | **Voice log** | （無指令，`config.yaml` 開關） | 語音在線紀錄：每人每小時在線／活躍分鐘 + 進出頻道事件流，寫到 `logs/voice/`。預設關 |
 | **FB watch** | `/fbwatch` | 訂閱關鍵字，命中轉貼文章時 DM 通知（可選 ntfy 手機推播） |
 | **Conversation** | `!sendtext`、`!sendreply`、`!sendprivate` | 遠端代發訊息（限 owner） |
@@ -116,6 +117,23 @@ points:
 ```
 
 改完 `display_name` 之後跑 `!reload points`；slash 指令的描述還要再跑一次 `!sync` 才會更新。
+
+訊息封存（可選）也在這裡開：
+
+```yaml
+archive:
+  enabled: false         # 開了才收
+  guild_id: null         # null = 所有伺服器
+  store_content: false   # true = 訊息內容也存（獨立一個檔）
+```
+
+開啟後每則訊息的 metadata（誰、何時、哪個頻道、幾個附件、幾個字）寫進
+`logs/archive/messages.db`，內容（若開）寫進 `logs/archive/content.db`；兩個檔分開是
+為了讓你隨時可以只刪內容、留統計。`!archive_backfill`（限 owner）會把整個伺服器的
+歷史訊息從最舊的開始爬進來，進度存在 DB、中斷後重跑會接著爬。查詢用
+`/archive stats user: from: to:`（幾句、各頻道、24 小時與星期分布）、`/archive top`
+（排行），或 dashboard 的「訊息統計」頁；檔案本身是普通 SQLite，自己下 SQL 也行。
+這是在存群友的發言紀錄，開之前先跟群友說一聲。
 
 語音在線紀錄（可選）也在這裡開：
 
@@ -224,6 +242,7 @@ cogs/
   role_select.py        # 自助選身分組按鈕
   scheduled.py          # cron 式排程訊息
   voicelog.py           # 語音在線紀錄（每小時桶 + 事件流，預設關）
+  archive.py            # 訊息封存（SQLite metadata + 可選內容，回填 + 統計查詢）
 cogs_local/             # 可選的私有 cog（已 gitignore）
 dashboard/              # FastAPI 管理後台
 json/
