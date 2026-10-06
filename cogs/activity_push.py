@@ -16,6 +16,10 @@
 - `!activity_push status` 看積壓與最近結果；`!activity_push_backfill` 把 archive 的歷史訊息
   （cogs/archive.py 爬下來的）排進 outbox 補傳。
 
+頻道名稱：另一個端點 `POST /api/activity/channels`，讓網站能把 channel_id 顯示成名字。
+啟動時送全部，之後每 `upload_minutes` 分鐘只送有變的（改名/新頻道/新討論串會立刻送）；
+archive 的 channels 表也會併進去，所以已封存討論串、被刪掉的頻道也有名字。
+
 token：環境變數 `activity_push_token` 優先，否則讀 `api_key/activity_push.txt`。
 預設關閉；config.yaml 的 `activity_push:` 區塊 `enabled: true` 才會動。
 """
@@ -28,6 +32,7 @@ import logging
 import os
 import random
 import sqlite3
+import unicodedata
 from typing import Optional
 
 import aiohttp
@@ -40,6 +45,8 @@ KEY_ENV = "activity_push_token"
 KEY_FILE = "api_key/activity_push.txt"
 OUTBOX_DB = os.path.join("logs", "activity_push", "outbox.db")
 ENDPOINT = "/api/activity/batches"
+CHANNELS_ENDPOINT = "/api/activity/channels"
+NAME_MAX = 100
 
 BATCH_MAX = 1000
 BYTES_MAX = 1024 * 1024
@@ -105,6 +112,85 @@ def message_event(m: discord.Message) -> dict:
 
 def voice_event(user_id: int, channel_id: int, sampled_at: str) -> dict:
     return {"user_id": str(user_id), "channel_id": str(channel_id), "sampled_at": sampled_at}
+
+
+def sanitize_name(name: str) -> Optional[str]:
+    """API 規則：去前後空白、不含控制字元、1–100 字；不合格回 None。"""
+    cleaned = "".join(c for c in (name or "") if not unicodedata.category(c).startswith("C")).strip()
+    if not cleaned:
+        return None
+    return cleaned[:NAME_MAX]
+
+
+def live_channel_names(guild: discord.Guild) -> dict[int, str]:
+    """現在看得到的、會出現在訊息/語音事件裡的頻道：文字、語音、舞台、論壇、活躍討論串。"""
+    out: dict[int, str] = {}
+    for ch in guild.channels:
+        if isinstance(ch, discord.CategoryChannel):
+            continue
+        out[ch.id] = ch.name
+    for th in guild.threads:
+        out[th.id] = th.name
+    return out
+
+
+def archived_channel_names(guild_id: int) -> dict[int, str]:
+    """archive（cogs/archive.py）的 channels 表：涵蓋已封存討論串、已刪頻道。沒有就空。"""
+    try:
+        from cogs import archive as archive_cog
+    except ImportError:
+        return {}
+    if not os.path.exists(archive_cog.META_DB):
+        return {}
+    try:
+        conn = sqlite3.connect(f"file:{archive_cog.META_DB}?mode=ro", uri=True)
+        try:
+            return {int(cid): name for cid, name in conn.execute(
+                "SELECT channel_id, name FROM channels WHERE guild_id=?", (guild_id,))}
+        finally:
+            conn.close()
+    except sqlite3.Error as e:
+        logger.warning("activity_push: 讀 archive channels 失敗：%s", e)
+        return {}
+
+
+async def push_channels(session: aiohttp.ClientSession, base_url: str, token: str,
+                        guild_id: int, rows: list[dict]) -> PushResult:
+    """送一批頻道名稱（呼叫端保證 ≤ BATCH_MAX 筆）。"""
+    if not rows:
+        return PushResult("empty")
+    data = json.dumps({"guild_id": str(guild_id), "channels": rows}, ensure_ascii=False).encode("utf-8")
+    if len(data) > BYTES_MAX and len(rows) > 1:
+        half = len(rows) // 2
+        a = await push_channels(session, base_url, token, guild_id, rows[:half])
+        if a.status != "ok":
+            return a
+        b = await push_channels(session, base_url, token, guild_id, rows[half:])
+        return PushResult(b.status, sent=a.sent + b.sent, inserted=a.inserted + b.inserted,
+                          duplicates=a.duplicates + b.duplicates, detail=b.detail)
+    url = base_url.rstrip("/") + CHANNELS_ENDPOINT
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    try:
+        async with session.post(url, data=data, headers=headers,
+                                timeout=aiohttp.ClientTimeout(total=60)) as resp:
+            status = resp.status
+            text = await resp.text()
+    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+        return PushResult("retry", sent=len(rows), detail=f"連線錯誤：{e}")
+    if status == 200:
+        try:
+            j = json.loads(text)
+            return PushResult("ok", sent=len(rows), inserted=int(j.get("updated", 0)),
+                              duplicates=int(j.get("unchanged", 0)))
+        except (ValueError, AttributeError, TypeError):
+            return PushResult("ok", sent=len(rows))
+    if status in (401, 403):
+        return PushResult("auth", sent=len(rows), detail=f"{status} {text[:300]}")
+    if status == 422:
+        return PushResult("quarantined", sent=len(rows), detail=text[:500])
+    if status == 429:
+        return PushResult("retry", sent=len(rows), retry_after=RATE_LIMIT_WAIT, detail="429")
+    return PushResult("retry", sent=len(rows), detail=f"{status} {text[:300]}")
 
 
 # ── outbox（SQLite） ──
@@ -278,12 +364,16 @@ class ActivityPush(commands.Cog):
         self._blocked_until = 0.0               # unix 秒，之前不送
         self._last: str = "還沒送過"
         self._token_warned = 0.0
+        self._sent_names: dict[int, dict[int, str]] = {}   # {guild_id: {channel_id: 上次送成功的名字}}
+        self._names_last: str = "還沒送過"
         self.voice_tick.start()
         self.uploader.start()
+        self.channel_sync.start()
 
     def cog_unload(self):
         self.voice_tick.cancel()
         self.uploader.cancel()
+        self.channel_sync.cancel()
         if self._session:
             self.bot.loop.create_task(self._session.close())
         if self._outbox:
@@ -342,6 +432,99 @@ class ActivityPush(commands.Cog):
     @voice_tick.error
     async def voice_tick_error(self, error):
         logger.error("activity_push voice_tick error: %s", error)
+
+    # ── 頻道名稱同步 ──
+
+    @tasks.loop(minutes=DEFAULTS["upload_minutes"])
+    async def channel_sync(self):
+        # 第一次 tick 就是啟動時（送全部），之後每 upload_minutes 分鐘只送有變的。
+        await self.sync_channel_names()
+
+    @channel_sync.before_loop
+    async def before_channel_sync(self):
+        await self.bot.wait_until_ready()
+        minutes = max(1, int(push_config(self.bot)["upload_minutes"]))
+        if self.channel_sync.minutes != minutes:
+            self.channel_sync.change_interval(minutes=minutes)
+
+    @channel_sync.error
+    async def channel_sync_error(self, error):
+        logger.error("activity_push channel_sync error: %s", error)
+
+    @commands.Cog.listener()
+    async def on_guild_channel_update(self, before, after):
+        if getattr(before, "name", None) != getattr(after, "name", None):
+            await self._sync_if_enabled(after.guild.id)
+
+    @commands.Cog.listener()
+    async def on_guild_channel_create(self, channel):
+        await self._sync_if_enabled(channel.guild.id)
+
+    @commands.Cog.listener()
+    async def on_thread_create(self, thread: discord.Thread):
+        await self._sync_if_enabled(thread.guild.id)
+
+    @commands.Cog.listener()
+    async def on_thread_update(self, before: discord.Thread, after: discord.Thread):
+        if before.name != after.name:
+            await self._sync_if_enabled(after.guild.id)
+
+    async def _sync_if_enabled(self, guild_id: int) -> None:
+        if _guild_enabled(self.bot, guild_id):
+            await self.sync_channel_names(only_guild=guild_id)
+
+    async def sync_channel_names(self, only_guild: Optional[int] = None, force: bool = False) -> None:
+        """把名字有變的頻道送到 /api/activity/channels；force=True 送全部。"""
+        cfg = push_config(self.bot)
+        if not cfg["enabled"]:
+            return
+        base_url = (cfg.get("base_url") or "").strip()
+        token = _load_token()
+        if not base_url or not token:
+            return   # drain 那邊會每小時提醒一次，這裡不重複
+        if self._blocked_until > _utcnow().timestamp():
+            return
+        async with self._upload_lock:   # 跟批次上傳共用同一條 60 次/分的額度
+            session = await self.session()
+            observed_at = _utcnow().isoformat()
+            for guild in self.bot.guilds:
+                if only_guild is not None and guild.id != only_guild:
+                    continue
+                if not _guild_enabled(self.bot, guild.id):
+                    continue
+                names = archived_channel_names(guild.id)
+                names.update(live_channel_names(guild))   # 現在的名字優先
+                sent = self._sent_names.setdefault(guild.id, {})
+                rows = []
+                for cid, raw in names.items():
+                    name = sanitize_name(raw)
+                    if name is None or (not force and sent.get(cid) == name):
+                        continue
+                    rows.append({"channel_id": str(cid), "name": name, "observed_at": observed_at})
+                if not rows:
+                    continue
+                ok = True
+                for i in range(0, len(rows), BATCH_MAX):
+                    chunk = rows[i:i + BATCH_MAX]
+                    r = await push_channels(session, base_url, token, guild.id, chunk)
+                    if r.status == "ok":
+                        for row in chunk:
+                            sent[int(row["channel_id"])] = row["name"]
+                        self._names_last = (f"{_utcnow().astimezone(TZ):%m-%d %H:%M} 送 {r.sent} 個頻道名："
+                                            f"更新 {r.inserted}、沒變 {r.duplicates}")
+                        logger.info("activity_push: %s", self._names_last)
+                    else:
+                        ok = False
+                        self._names_last = f"{_utcnow().astimezone(TZ):%m-%d %H:%M} 頻道名稱送失敗：{r.detail}"
+                        logger.warning("activity_push: %s", self._names_last)
+                        if r.status == "quarantined":
+                            # 422：整批裡有不合規的名字；下次 tick 會再試，先不卡其他 guild
+                            pass
+                        break
+                    if i + BATCH_MAX < len(rows):
+                        await asyncio.sleep(BATCH_GAP_SECONDS)
+                if not ok:
+                    continue
 
     # ── 上傳 ──
 
@@ -420,13 +603,19 @@ class ActivityPush(commands.Cog):
     @commands.command(name="activity_push", hidden=True)
     @commands.is_owner()
     async def activity_push_cmd(self, ctx: commands.Context, action: str = "status"):
-        """`!activity_push status` 看積壓；`!activity_push now` 立刻送一輪。"""
+        """`!activity_push status` 看積壓；`!activity_push now` 立刻送一輪；
+        `!activity_push channels` 重送全部頻道名稱。"""
         action = action.lower()
         if action == "now":
             self._blocked_until = 0
             self._backoff = 0
             await ctx.send("⏫ 開始送…")
             await self.drain()
+            await self.sync_channel_names()
+        elif action == "channels":
+            self._blocked_until = 0
+            await ctx.send("📛 重送全部頻道名稱…")
+            await self.sync_channel_names(force=True)
         c = self.outbox().counts()
         oldest = (f"，最舊 {datetime.datetime.fromtimestamp(c['oldest_ts'], TZ):%m-%d %H:%M}"
                   if c.get("oldest_ts") else "")
@@ -435,7 +624,8 @@ class ActivityPush(commands.Cog):
             blocked = f"\n⏸ 退避中，{self._blocked_until - _utcnow().timestamp():.0f}s 後再試"
         await ctx.send(
             f"📤 activity_push\n待送：訊息 {c['m']:,}、語音取樣 {c['v']:,}{oldest}\n"
-            f"隔離（422/413）：{c['quarantine']:,}\n最近：{self._last}{blocked}")
+            f"隔離（422/413）：{c['quarantine']:,}\n最近：{self._last}\n"
+            f"頻道名稱：{self._names_last}{blocked}")
 
     @commands.command(name="activity_push_backfill", hidden=True)
     @commands.is_owner()
