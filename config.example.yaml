@@ -78,6 +78,17 @@ archive:
   guild_id: null             # null = 所有伺服器；填 ID = 只記該伺服器
   store_content: false       # true = 內容也存（另一個檔）
 
+# 活躍度上傳（可選，預設關）。把「誰在什麼時候發了訊息 / 在語音」推到你自己的網站
+# （POST {base_url}/api/activity/batches，Bearer token），不送訊息內容。事件先進持久化
+# outbox（logs/activity_push/outbox.db）再分批送，失敗會退避重送。
+# token 放環境變數 activity_push_token 或 api_key/activity_push.txt。
+activity_push:
+  enabled: false
+  guild_id: null             # null = 所有伺服器；填 ID = 只送該伺服器
+  base_url: ""               # 例：https://example.com（不含 /api/...）
+  include_afk: false         # 語音取樣要不要算 AFK 頻道裡的人
+  upload_minutes: 5          # 幾分鐘送一次（有積壓會連續送到清空）
+
 # 語音在線紀錄（可選，預設關）。開了之後會記每個人幾點在語音、進出哪個頻道：
 #   logs/voice/<guild_id>.hourly.json   每人每小時在線/活躍分鐘
 #   logs/voice/<guild_id>.events.jsonl  join/leave/move/mute/deaf 事件流

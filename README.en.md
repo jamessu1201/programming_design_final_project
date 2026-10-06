@@ -20,6 +20,7 @@ auto-deploy.
 | **LLM** | `/ask`, `/forget`, `/botchat`, `/stopchat` | Talks to any OpenAI-compatible endpoint. `/ask` is one question / one answer (images supported for vision models); @-mention the bot for chat with short-term context; `/botchat` lets two bots talk to each other in a designated channel (throttled, with a turn cap) and `/stopchat` ends it. Supports function calling: time/arithmetic, weather, DuckDuckGo search, and looking up points and queues |
 | **Points** | `/points top`, `/points view`, `/points active`, `/points reset`, `/points recompute` | Activity points: +1 per N minutes in voice, +1 per message. `/points active` lists everyone who hit a threshold over a rolling window (default "≥ 200 in the last 30 days"). Name, rates and which servers it applies to are all set in `config.yaml` |
 | **Archive** | `/archive stats`, `/archive top`, `/archive status`, `!archive_backfill` | Message archive: per-message metadata in SQLite (content optionally in a second file). Ask how much someone posted in a date range, in which channels and at what hours; `!archive_backfill` crawls the server's full history (resumable). Same view in the dashboard. Off by default |
+| **Activity push** | `!activity_push`, `!activity_push_backfill` | Pushes message metadata and once-a-minute voice samples to your own site's API (`POST /api/activity/batches`, Bearer token, no message text); durable outbox, batching, backoff retries, 422 quarantine. Can replay history from the archive. Off by default |
 | **Voice log** | (no commands; `config.yaml` toggle) | Voice presence log: per-user minutes online/active for every hour plus a join/leave/move event stream, written to `logs/voice/`. Off by default |
 | **FB watch** | `/fbwatch` | Subscribe to keywords and get a DM when a forwarded post matches (optional ntfy push to your phone) |
 | **Conversation** | `!sendtext`, `!sendreply`, `!sendprivate` | Remote messaging (owner only) |
@@ -145,6 +146,28 @@ and weekday distribution), `/archive top` (leaderboard), or the dashboard's
 "訊息統計" page; the files are plain SQLite, so you can also run your own SQL.
 This records who posted when, so tell your members before turning it on.
 
+Optional activity push: sends each message's metadata (author, channel, sent
+time, replied-to user, length, attachment count) and once-a-minute voice samples
+to your own website:
+
+```yaml
+activity_push:
+  enabled: false
+  guild_id: null
+  base_url: https://example.com   # POSTs to {base_url}/api/activity/batches
+  include_afk: false
+  upload_minutes: 5
+```
+
+The token comes from the `activity_push_token` environment variable or
+`api_key/activity_push.txt`. Events are written to `logs/activity_push/outbox.db`
+first (nothing is lost on restart), then sent in batches of at most 1,000 rows /
+1 MiB and only deleted on a 200. 5xx and timeouts retry with exponential backoff,
+429 waits 60 s, 413 halves the batch, 422 moves the batch to a quarantine table
+for inspection. `!activity_push status` shows the backlog, `!activity_push now`
+sends immediately, and `!activity_push_backfill` replays the archive's history
+(the server de-duplicates).
+
 The optional voice presence log lives in the same file:
 
 ```yaml
@@ -264,6 +287,7 @@ cogs/
   scheduled.py          # Cron-style scheduled messages
   voicelog.py           # Voice presence log (hourly buckets + event stream, off by default)
   archive.py            # Message archive (SQLite metadata + optional content, backfill + stats)
+  activity_push.py      # Pushes activity events to an external site API (durable outbox + retry)
 cogs_local/             # Optional private cogs (gitignored)
 dashboard/              # FastAPI admin UI
 json/
