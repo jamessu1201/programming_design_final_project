@@ -75,3 +75,11 @@ archive:
   enabled: true
   guild_id: 960893399014211614
   store_content: true
+
+# 活躍度上傳到 py.as6325400.org（token 在 bind 的 api_key/activity_push.txt）
+activity_push:
+  enabled: true
+  guild_id: 960893399014211614
+  base_url: https://py.as6325400.org
+  include_afk: false
+  upload_minutes: 5
