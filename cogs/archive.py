@@ -481,6 +481,8 @@ class Archive(commands.Cog):
     @flush.before_loop
     async def before_flush(self):
         await self.bot.wait_until_ready()
+        if archive_config(self.bot)["enabled"]:
+            self.db()   # 一開機就開檔：schema 遷移馬上做掉，壞掉也早點在 log 看到
 
     @flush.error
     async def flush_error(self, error):
