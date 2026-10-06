@@ -165,8 +165,12 @@ The token comes from the `activity_push_token` environment variable or
 first (nothing is lost on restart), then sent in batches of at most 1,000 rows /
 1 MiB and only deleted on a 200. 5xx and timeouts retry with exponential backoff,
 429 waits 60 s, 413 halves the batch, 422 moves the batch to a quarantine table
-for inspection. `!activity_push status` shows the backlog, `!activity_push now`
-sends immediately, and `!activity_push_backfill` replays the archive's history
+for inspection. Channel names go to `POST /api/activity/channels` separately: everything at
+startup, then only changed names every 5 minutes (renames, new channels and
+threads are sent right away); the archive's channel table is merged in so
+archived threads get names too. `!activity_push status` shows the backlog,
+`!activity_push now` sends immediately, `!activity_push channels` resends every
+channel name, and `!activity_push_backfill` replays the archive's history
 (the server de-duplicates).
 
 The optional voice presence log lives in the same file:

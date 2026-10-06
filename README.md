@@ -152,7 +152,8 @@ activity_push:
 token 放環境變數 `activity_push_token` 或 `api_key/activity_push.txt`。事件先寫進
 `logs/activity_push/outbox.db`（bot 重啟不會丟），每批最多 1,000 筆 / 1 MiB，200 才刪；
 5xx／逾時指數退避重送、429 等 60 秒、413 對半拆、422 整批移到 quarantine 表留著查。
-`!activity_push status` 看積壓、`!activity_push now` 立刻送，`!activity_push_backfill`
+頻道名稱另外走 `POST /api/activity/channels`：啟動送全部、之後每 5 分鐘只送有變的（改名／新頻道／新討論串會立刻送），archive 的頻道表也併進去，已封存的討論串也有名字。
+`!activity_push status` 看積壓、`!activity_push now` 立刻送、`!activity_push channels` 重送全部頻道名稱，`!activity_push_backfill`
 把 archive 爬到的歷史訊息也排進去補傳（伺服器端會去重）。
 
 語音在線紀錄（可選）也在這裡開：
