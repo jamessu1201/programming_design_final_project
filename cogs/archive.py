@@ -102,7 +102,8 @@ CREATE TABLE IF NOT EXISTS messages (
     attachments INTEGER NOT NULL DEFAULT 0,
     length      INTEGER NOT NULL DEFAULT 0,
     edited_ts   INTEGER,
-    deleted_ts  INTEGER
+    deleted_ts  INTEGER,
+    reply_to_id INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_msg_guild_user_ts ON messages (guild_id, user_id, ts);
 CREATE INDEX IF NOT EXISTS idx_msg_guild_chan_ts ON messages (guild_id, channel_id, ts);
@@ -128,7 +129,15 @@ CREATE TABLE IF NOT EXISTS backfill (
     done            INTEGER NOT NULL DEFAULT 0,
     updated_ts      INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS rescan (
+    channel_id      INTEGER PRIMARY KEY,
+    last_message_id INTEGER,
+    done            INTEGER NOT NULL DEFAULT 0
+);
 """
+
+# 舊檔沒有的欄位在開檔時補上（ADD COLUMN 不會動到既有資料）
+META_MIGRATIONS = [("messages", "reply_to_id", "INTEGER")]
 
 CONTENT_SCHEMA = """
 CREATE TABLE IF NOT EXISTS content (
@@ -148,6 +157,12 @@ def _connect(path: str, schema: str) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.executescript(schema)
+    if schema is META_SCHEMA:
+        for table, col, typ in META_MIGRATIONS:
+            cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+            if col not in cols:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
+                conn.commit()
     return conn
 
 
@@ -169,15 +184,16 @@ class ArchiveDB:
     # 寫入
 
     def upsert_messages(self, rows: list[tuple]) -> None:
-        """rows: (message_id, guild_id, channel_id, user_id, ts, attachments, length, edited_ts)。
-        已存在的列只更新會變的欄位（編輯時間/長度/附件數）。"""
+        """rows: (message_id, guild_id, channel_id, user_id, ts, attachments, length, edited_ts,
+        reply_to_id)。已存在的列只更新會變的欄位（編輯時間/長度/附件數/回覆對象）。"""
         if not rows:
             return
         self.meta.executemany(
             "INSERT INTO messages (message_id, guild_id, channel_id, user_id, ts, attachments,"
-            " length, edited_ts) VALUES (?,?,?,?,?,?,?,?)"
+            " length, edited_ts, reply_to_id) VALUES (?,?,?,?,?,?,?,?,?)"
             " ON CONFLICT(message_id) DO UPDATE SET attachments=excluded.attachments,"
-            " length=excluded.length, edited_ts=excluded.edited_ts", rows)
+            " length=excluded.length, edited_ts=excluded.edited_ts,"
+            " reply_to_id=COALESCE(excluded.reply_to_id, messages.reply_to_id)", rows)
         self.meta.commit()
 
     def upsert_content(self, rows: list[tuple]) -> None:
@@ -248,6 +264,28 @@ class ArchiveDB:
             (channel_id, guild_id, last_message_id, scanned, int(done), now_ts))
         self.meta.commit()
 
+    def rescan_state(self, channel_id: int) -> Optional[sqlite3.Row]:
+        return self.meta.execute("SELECT * FROM rescan WHERE channel_id=?", (channel_id,)).fetchone()
+
+    def save_rescan(self, channel_id: int, last_message_id: Optional[int], done: bool) -> None:
+        self.meta.execute(
+            "INSERT INTO rescan (channel_id, last_message_id, done) VALUES (?,?,?)"
+            " ON CONFLICT(channel_id) DO UPDATE SET last_message_id=excluded.last_message_id,"
+            " done=excluded.done", (channel_id, last_message_id, int(done)))
+        self.meta.commit()
+
+    def clear_rescan(self) -> None:
+        self.meta.execute("DELETE FROM rescan")
+        self.meta.commit()
+
+    def reply_coverage(self, guild_id: int) -> tuple[int, int]:
+        """(是回覆的則數, 其中回覆對象也在 archive 裡的則數)。"""
+        row = self.meta.execute(
+            "SELECT COUNT(*), COALESCE(SUM(EXISTS (SELECT 1 FROM messages r"
+            " WHERE r.message_id=m.reply_to_id)), 0)"
+            " FROM messages m WHERE m.guild_id=? AND m.reply_to_id IS NOT NULL", (guild_id,)).fetchone()
+        return int(row[0]), int(row[1])
+
     def backfill_summary(self, guild_id: int) -> dict:
         row = self.meta.execute(
             "SELECT COUNT(*) AS sources, SUM(done) AS done, SUM(scanned) AS scanned,"
@@ -317,11 +355,19 @@ class ArchiveDB:
 
 # ── 共用：把 discord 物件轉成列 ──
 
+def _reply_to_id(m: discord.Message) -> Optional[int]:
+    """被回覆的 message_id；轉發、討論串起始訊息之類的不算。"""
+    ref = getattr(m, "reference", None)
+    if ref is None or m.type is not discord.MessageType.reply:
+        return None
+    return ref.message_id
+
+
 def _message_rows(m: discord.Message):
     ts = int(m.created_at.timestamp())
     edited = int(m.edited_at.timestamp()) if m.edited_at else None
     meta = (m.id, m.guild.id, m.channel.id, m.author.id, ts,
-            len(m.attachments), len(m.content or ""), edited)
+            len(m.attachments), len(m.content or ""), edited, _reply_to_id(m))
     content = (m.id, m.content or "", json.dumps([a.url for a in m.attachments]))
     return meta, content
 
@@ -498,6 +544,7 @@ class Archive(commands.Cog):
         """把整個伺服器的歷史訊息爬進 archive。
 
         `!archive_backfill`        從每個頻道上次的位置接著爬（第一次 = 從最舊開始）
+        `!archive_backfill rescan` 全部重掃一次（補舊資料缺的欄位，例如回覆對象）；可中斷續傳
         `!archive_backfill stop`   停掉正在跑的
         `!archive_backfill status` 看進度
         """
@@ -513,7 +560,8 @@ class Archive(commands.Cog):
             return await ctx.send(self._status_text(ctx.guild.id))
         if self._backfill_running():
             return await ctx.send("已經有一個回填在跑，`!archive_backfill status` 看進度。")
-        self._backfill_task = asyncio.create_task(self._backfill_run(ctx))
+        self._backfill_task = asyncio.create_task(
+            self._backfill_run(ctx, rescan=(mode == "rescan")))
 
     def _status_text(self, guild_id: int) -> str:
         db = self.db()
@@ -533,6 +581,9 @@ class Archive(commands.Cog):
         else:
             size += "（未存內容）"
         lines.append(size)
+        replies, resolvable = db.reply_coverage(guild_id)
+        if replies:
+            lines.append(f"回覆：{replies:,} 則是回覆，其中 {resolvable:,} 則的對象在 archive 裡")
         if bf.get("sources"):
             lines.append(f"回填：{bf['done'] or 0}/{bf['sources']} 個來源完成，"
                          f"共讀過 {bf['scanned'] or 0:,} 則{running}")
@@ -540,11 +591,12 @@ class Archive(commands.Cog):
             lines.append(f"回填：還沒跑過（`!archive_backfill`）{running}")
         return "\n".join(lines)
 
-    async def _backfill_run(self, ctx: commands.Context):
+    async def _backfill_run(self, ctx: commands.Context, rescan: bool = False):
         guild = ctx.guild
         db = self.db()
         status = await ctx.send(
-            "🔎 開始爬歷史訊息…（量大時要跑很久，`!archive_backfill status` 看進度）")
+            ("🔁 開始重掃全部歷史…" if rescan else "🔎 開始爬歷史訊息…")
+            + "（量大時要跑很久，`!archive_backfill status` 看進度）")
         scanned_total = stored_total = sources = skipped = 0
         started = datetime.datetime.now(TZ)
 
@@ -553,8 +605,17 @@ class Archive(commands.Cog):
                 sources += 1
                 name = getattr(source, "name", source.id)
                 state = db.backfill_state(source.id)
-                last_id = state["last_message_id"] if state else None
                 scanned = int(state["scanned"]) if state else 0
+                if rescan:
+                    # 重掃用自己的進度表：從頭讀，但中斷後能接著；正常進度表只會往前推。
+                    rs = db.rescan_state(source.id)
+                    if rs and rs["done"]:
+                        continue
+                    last_id = rs["last_message_id"] if rs else None
+                    final_id = state["last_message_id"] if state else None
+                else:
+                    last_id = state["last_message_id"] if state else None
+                    final_id = None
                 after = discord.Object(id=last_id) if last_id else None
                 db.upsert_channels([_channel_row(source)])
                 meta: list[tuple] = []
@@ -567,11 +628,17 @@ class Archive(commands.Cog):
                     db.upsert_messages(meta)
                     db.upsert_content(content)
                     meta, content, users = [], [], {}
-                    db.save_backfill(source.id, guild.id, last_id, scanned, done, _utcnow_ts())
+                    if rescan:
+                        db.save_rescan(source.id, last_id, done)
+                        if last_id and (final_id is None or last_id > final_id):
+                            db.save_backfill(source.id, guild.id, last_id, scanned, True, _utcnow_ts())
+                    else:
+                        db.save_backfill(source.id, guild.id, last_id, scanned, done, _utcnow_ts())
 
                 try:
                     async for m in source.history(limit=None, after=after, oldest_first=True):
-                        scanned += 1
+                        if not rescan:
+                            scanned += 1
                         scanned_total += 1
                         last_id = m.id
                         if not m.author.bot:
@@ -605,9 +672,12 @@ class Archive(commands.Cog):
             await ctx.send("❌ 回填中途出錯，看 log。進度已存，可以直接重跑。")
             return
 
+        if rescan:
+            db.clear_rescan()
         took = datetime.datetime.now(TZ) - started
+        word = "重掃" if rescan else "回填"
         await ctx.send(
-            f"✅ **回填完成**（{took.seconds // 60} 分鐘）\n"
+            f"✅ **{word}完成**（{took.seconds // 60} 分鐘）\n"
             f"掃了 {sources} 個頻道/討論串，這次讀了 {scanned_total:,} 則、新增/更新 {stored_total:,} 則"
             + (f"，{skipped} 個沒權限略過" if skipped else "") + "\n" + self._status_text(guild.id))
 

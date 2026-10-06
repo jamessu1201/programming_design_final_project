@@ -141,7 +141,8 @@ length) goes into `logs/archive/messages.db`, and the text (if enabled) into
 the content at any time and keep the statistics. `!archive_backfill` (bot owner
 only) crawls the server's entire history from the oldest message; progress is
 stored in the database, so an interrupted run resumes where each channel left
-off. Query with `/archive stats user: from: to:` (count, per channel, hour-of-day
+off; `!archive_backfill rescan` re-reads everything to fill in columns older rows
+lack (e.g. the replied-to message), and is resumable too. Query with `/archive stats user: from: to:` (count, per channel, hour-of-day
 and weekday distribution), `/archive top` (leaderboard), or the dashboard's
 "訊息統計" page; the files are plain SQLite, so you can also run your own SQL.
 This records who posted when, so tell your members before turning it on.

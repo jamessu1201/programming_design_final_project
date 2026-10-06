@@ -131,7 +131,8 @@ archive:
 開啟後每則訊息的 metadata（誰、何時、哪個頻道、幾個附件、幾個字）寫進
 `logs/archive/messages.db`，內容（若開）寫進 `logs/archive/content.db`；兩個檔分開是
 為了讓你隨時可以只刪內容、留統計。`!archive_backfill`（限 owner）會把整個伺服器的
-歷史訊息從最舊的開始爬進來，進度存在 DB、中斷後重跑會接著爬。查詢用
+歷史訊息從最舊的開始爬進來，進度存在 DB、中斷後重跑會接著爬；`!archive_backfill rescan`
+全部重掃一次以補齊舊資料缺的欄位（例如回覆對象），同樣可中斷續傳。查詢用
 `/archive stats user: from: to:`（幾句、各頻道、24 小時與星期分布）、`/archive top`
 （排行），或 dashboard 的「訊息統計」頁；檔案本身是普通 SQLite，自己下 SQL 也行。
 這是在存群友的發言紀錄，開之前先跟群友說一聲。
