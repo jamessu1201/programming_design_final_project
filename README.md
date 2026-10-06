@@ -19,6 +19,7 @@ git 自動部署。
 | **LLM** | `/ask`、`/forget`、`/botchat`、`/stopchat` | 接 OpenAI 相容端點：`/ask` 一問一答（可附圖看圖）、@機器人 聊天（短期上下文）、`/botchat` 讓兩隻機器人在指定頻道互聊（節流＋上限），`/stopchat` 喊停。支援 function calling 工具：時間/計算、天氣、DuckDuckGo 搜尋、查點數與 queue |
 | **Points** | `/points top`、`/points view`、`/points active`、`/points reset`、`/points recompute` | 活躍度點數：語音每 N 分鐘 +1、訊息每則 +1。`/points active` 列出指定期間內達到門檻的人（預設「最近 30 天 ≥ 200 點」）。名稱、費率、適用伺服器都在 `config.yaml` 設定 |
 | **Archive** | `/archive stats`、`/archive top`、`/archive status`、`!archive_backfill` | 訊息封存：每則訊息的 metadata 進 SQLite（內容可選另存一檔），查某人在某段時間講幾句、在哪個頻道、幾點講；`!archive_backfill` 把整個伺服器的歷史爬進來（可中斷續傳）。dashboard 也有同樣的頁面。預設關 |
+| **Activity push** | `!activity_push`、`!activity_push_backfill` | 把訊息 metadata 與每分鐘語音取樣推到你自己的網站 API（`POST /api/activity/batches`，Bearer token，不送內容）；持久化 outbox、分批、退避重送、422 隔離。可從 archive 補傳歷史。預設關 |
 | **Voice log** | （無指令，`config.yaml` 開關） | 語音在線紀錄：每人每小時在線／活躍分鐘 + 進出頻道事件流，寫到 `logs/voice/`。預設關 |
 | **FB watch** | `/fbwatch` | 訂閱關鍵字，命中轉貼文章時 DM 通知（可選 ntfy 手機推播） |
 | **Conversation** | `!sendtext`、`!sendreply`、`!sendprivate` | 遠端代發訊息（限 owner） |
@@ -135,6 +136,24 @@ archive:
 （排行），或 dashboard 的「訊息統計」頁；檔案本身是普通 SQLite，自己下 SQL 也行。
 這是在存群友的發言紀錄，開之前先跟群友說一聲。
 
+活躍度上傳（可選）：把每則訊息的 metadata（誰、哪個頻道、送出時間、回覆誰、字數、附件數）
+和每分鐘一次的語音取樣推到你自己的網站：
+
+```yaml
+activity_push:
+  enabled: false
+  guild_id: null
+  base_url: https://example.com   # 會 POST 到 {base_url}/api/activity/batches
+  include_afk: false
+  upload_minutes: 5
+```
+
+token 放環境變數 `activity_push_token` 或 `api_key/activity_push.txt`。事件先寫進
+`logs/activity_push/outbox.db`（bot 重啟不會丟），每批最多 1,000 筆 / 1 MiB，200 才刪；
+5xx／逾時指數退避重送、429 等 60 秒、413 對半拆、422 整批移到 quarantine 表留著查。
+`!activity_push status` 看積壓、`!activity_push now` 立刻送，`!activity_push_backfill`
+把 archive 爬到的歷史訊息也排進去補傳（伺服器端會去重）。
+
 語音在線紀錄（可選）也在這裡開：
 
 ```yaml
@@ -243,6 +262,7 @@ cogs/
   scheduled.py          # cron 式排程訊息
   voicelog.py           # 語音在線紀錄（每小時桶 + 事件流，預設關）
   archive.py            # 訊息封存（SQLite metadata + 可選內容，回填 + 統計查詢）
+  activity_push.py      # 活躍度事件推到外部網站 API（持久化 outbox + 重送）
 cogs_local/             # 可選的私有 cog（已 gitignore）
 dashboard/              # FastAPI 管理後台
 json/
