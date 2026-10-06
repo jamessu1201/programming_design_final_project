@@ -445,7 +445,8 @@ class ActivityPush(commands.Cog):
 
         `!activity_push_backfill`             全部
         `!activity_push_backfill 2026-01-01`  只補這天（含）之後的
-        沒有回覆對象資訊（archive 沒存），其餘欄位齊全；伺服器會自己去重。
+        回覆對象用 archive 的 reply_to_id 對回作者（舊資料要先 `!archive_backfill rescan`）。
+        伺服器會去重，但它是首次寫入為準：已存在的列不會被更新。
         """
         if not _guild_enabled(self.bot, ctx.guild.id):
             return await ctx.send("此功能未在這個伺服器啟用（config.yaml `activity_push.enabled`）。")
@@ -469,14 +470,21 @@ class ActivityPush(commands.Cog):
         outbox = self.outbox()
         status = await ctx.send("📦 從 archive 排入 outbox…")
         try:
+            with_reply = 0
             for r in src.execute(
-                    "SELECT message_id, channel_id, user_id, ts, attachments, length FROM messages"
-                    " WHERE guild_id=? AND ts>=? AND deleted_ts IS NULL ORDER BY message_id",
+                    "SELECT m.message_id, m.channel_id, m.user_id, m.ts, m.attachments, m.length,"
+                    " p.user_id AS reply_to FROM messages m"
+                    " LEFT JOIN messages p ON p.message_id = m.reply_to_id"
+                    " WHERE m.guild_id=? AND m.ts>=? AND m.deleted_ts IS NULL ORDER BY m.message_id",
                     (ctx.guild.id, start_ts)):
                 sent_at = datetime.datetime.fromtimestamp(r["ts"], datetime.timezone.utc).isoformat()
+                reply_to = r["reply_to"]
+                if reply_to is not None:
+                    with_reply += 1
                 batch.append((ctx.guild.id, "m", {
                     "message_id": str(r["message_id"]), "user_id": str(r["user_id"]),
                     "channel_id": str(r["channel_id"]), "sent_at": sent_at,
+                    "reply_to_user_id": str(reply_to) if reply_to is not None else None,
                     "text_length": int(r["length"]), "attachment_count": int(r["attachments"]),
                 }))
                 if len(batch) >= 5000:
@@ -493,7 +501,8 @@ class ActivityPush(commands.Cog):
             total += len(batch)
         finally:
             src.close()
-        await ctx.send(f"✅ 已把 {total:,} 筆歷史訊息排進 outbox，上傳器會依序送出"
+        await ctx.send(f"✅ 已把 {total:,} 筆歷史訊息排進 outbox（{with_reply:,} 筆帶回覆對象），"
+                       f"上傳器會依序送出"
                        f"（每批 1,000 筆、每秒一批，約 {total / 1000 / 60:.0f} 分鐘）。"
                        f"`!activity_push status` 看進度。")
         self._blocked_until = 0
